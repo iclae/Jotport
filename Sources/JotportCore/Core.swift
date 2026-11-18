@@ -40,6 +40,8 @@ public struct Block: Codable, Equatable, Identifiable {
     public var recap = ""
     public var recapSource = ""
     public var attention: String?
+    public var attentionPromoted: String?
+    public var attentionTime: String?
     public var seenEvents: Set<String> = []
     public init() {}
 }
@@ -71,10 +73,10 @@ public enum Reducer {
         case "bound": r.status = "已打开，待粘贴"
         case "prefilled": r.status = "待发送"; r.injected = true
         case "running": r.status = "运行中"
-        case "waiting": r.status = "需要输入"; b.attention = e.eventID
+        case "waiting": r.status = "需要输入"; b.attention = e.eventID; b.attentionTime = e.time
         case "settled":
             guard e.turnID > 0 else { b.run = r; return true }
-            r.status = "结果待查看"; b.attention = e.eventID
+            r.status = "结果待查看"; b.attention = e.eventID; b.attentionTime = e.time
             if let text = e.text, !text.isEmpty { b.recap = String(text.prefix(4000)); b.recapSource = "\(e.sessionID) · 轮次 \(e.turnID) · \(e.time)" }
         case "exited": r.status = "已退出"
         default: r.status = "状态未知"

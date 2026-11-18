@@ -12,7 +12,6 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     var store: Store!
     var root: URL!
     var watcher: DispatchSourceFileSystemObject?
-    var pendingPromotion: Set<String> = []
     var editing = false
     var processes: [Process] = []
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -54,6 +53,7 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         table.addTableColumn(column); table.headerView = nil; table.rowHeight = 62; table.delegate = self; table.dataSource = self
         table.registerForDraggedTypes([.string]); table.setDraggingSourceOperationMask(.move, forLocal: true)
         let list = NSScrollView(); list.documentView = table; list.hasVerticalScroller = true; list.widthAnchor.constraint(equalToConstant: 280).isActive = true
+        editor.minSize = NSSize(width: 0, height: 300); editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude); editor.isHorizontallyResizable = false; editor.textContainerInset = NSSize(width: 12, height: 12)
         editor.isRichText = false; editor.font = .systemFont(ofSize: 16); editor.allowsUndo = true; editor.delegate = self
         editor.isVerticallyResizable = true; editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
         let textScroll = NSScrollView(); textScroll.documentView = editor; textScroll.hasVerticalScroller = true
@@ -115,16 +115,20 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         let events = urls.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, BridgeEvent)? in guard let d = try? Data(contentsOf: url), d.count < 100_000, let e = try? JSONDecoder().decode(BridgeEvent.self, from: d) else { return nil }; return (url, e) }.sorted { $0.1.sequence < $1.1.sequence }
         for (url, event) in events {
             if let i = blocks.firstIndex(where: { $0.run?.id == event.runID }) {
-                let old = blocks[i].attention
-                if Reducer.apply(event, to: &blocks[i]) { do { try store.save(blocks[i]); if blocks[i].attention != old { pendingPromotion.insert(blocks[i].id) }; try? FileManager.default.removeItem(at: url) } catch { alert("事件保存失败：\(error)") } }
+                if Reducer.apply(event, to: &blocks[i]) { do { try store.save(blocks[i]); try? FileManager.default.removeItem(at: url) } catch { alert("事件保存失败：\(error)") } }
             }
         }
         promote(); detail()
     }
     func promote() {
         guard !editing, !editor.hasMarkedText(), search.stringValue.isEmpty else { return }
-        for id in pendingPromotion { if let i = blocks.firstIndex(where: { $0.id == id }), !blocks[i].pinned, !blocks[i].archived, !blocks[i].deleted { blocks[i].order = (blocks.map(\.order).min() ?? 0) - 1; save(i) } }
-        pendingPromotion.removeAll(); reload()
+        let pending = blocks.filter { $0.attention != nil && $0.attention != $0.attentionPromoted }.sorted { ($0.attentionTime ?? "") < ($1.attentionTime ?? "") }
+        for b in pending {
+            guard let i = blocks.firstIndex(where: { $0.id == b.id }) else { continue }
+            if !b.pinned, !b.archived, !b.deleted { blocks[i].order = (blocks.map(\.order).min() ?? 0) - 1 }
+            blocks[i].attentionPromoted = b.attention; save(i)
+        }
+        reload()
     }
     @objc func settings() {
         let a = NSAlert(); a.messageText = "首次接入设置"; a.informativeText = "选择终端实际 .app 路径。CLI 路径必须为可执行文件；参数为 JSON 字符串数组。不会更改 Codex/pi 全局配置。"

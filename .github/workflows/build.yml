@@ -27,7 +27,12 @@ jobs:
         run: |
           open dist/Jotport.app
           for i in $(seq 1 20); do
-            if pgrep -x Jotport; then exit 0; fi
+            if pgrep -x Jotport; then
+              sleep 3
+              pgrep -x Jotport
+              screencapture -x dist/smoke.png
+              exit 0
+            fi
             sleep 1
           done
           exit 1
@@ -38,5 +43,6 @@ jobs:
             dist/*.zip
             dist/*.txt
             dist/*.md
+            dist/*.png
             dist/SHA256SUMS
           retention-days: 30
