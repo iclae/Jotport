@@ -1,0 +1,42 @@
+name: Intel macOS test build
+on:
+  push:
+    branches: ['codex/**']
+  pull_request:
+    branches: [master]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  core-linux:
+    runs-on: ubuntu-latest
+    container: swift:5.10-jammy
+    steps:
+      - uses: actions/checkout@v4
+      - run: apt-get update && apt-get install -y libsqlite3-dev
+      - run: swift test
+  macos-intel:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test core and compile AppKit
+        run: swift test --arch x86_64
+      - name: Package macOS 12 Intel app
+        run: bash scripts/package.sh
+      - name: Launch smoke test
+        run: |
+          open dist/Jotport.app
+          for i in $(seq 1 20); do
+            if pgrep -x Jotport; then exit 0; fi
+            sleep 1
+          done
+          exit 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Jotport-macOS12-Intel
+          path: |
+            dist/*.zip
+            dist/*.txt
+            dist/*.md
+            dist/SHA256SUMS
+          retention-days: 30
