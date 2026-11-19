@@ -73,6 +73,8 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         let settingsItem = appMenu.addItem(withTitle: "设置…", action: #selector(settings), keyEquivalent: ",")
         settingsItem.target = self
         appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "隐藏 Jotport", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h").target = NSApp
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "退出 Jotport", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         item.submenu = appMenu
         menu.addItem(item)
