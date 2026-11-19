@@ -619,6 +619,8 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             }
             var agentEnvironment = ProcessInfo.processInfo.environment
             agentEnvironment["PATH"] = searchPath
+            // 使用登录 shell 的 PATH 后，Volta 需要重新解析 Node 版本。
+            agentEnvironment.removeValue(forKey: "_VOLTA_TOOL_RECURSION")
             let version = try capture(cli, ["--version"], environment: agentEnvironment)
             let help = try capture(terminalCLI.path, ["--help"])
             let dictionary = (try? capture("/usr/bin/sdef", [path])) ?? "无可用脚本字典；不使用未经验证的 AppleScript 接口"
@@ -651,6 +653,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             #!/bin/sh
             cd \(quote(cwd)) || exit 1
             export PATH=\(quote(searchPath))
+            unset _VOLTA_TOOL_RECURSION
             \(exports)
             : > \(quote(launchMarker(run.id).path)) || exit 1
             \(command)
