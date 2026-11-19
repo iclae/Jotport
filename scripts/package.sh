@@ -17,10 +17,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleExecutable</key><string>Jotport</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
-<key>CFBundleVersion</key><string>1</string>
+<key>CFBundleVersion</key><string>3</string>
 <key>LSMinimumSystemVersion</key><string>12.0</string>
 <key>NSHighResolutionCapable</key><true/>
-<key>NSAppleEventsUsageDescription</key><string>Jotport uses your selected terminal for agent sessions.</string>
+<key>NSAppleEventsUsageDescription</key><string>Jotport 需要在已打开的 Ghostty 中创建会话标签页。</string>
 </dict></plist>
 PLIST
 codesign --force --sign - "$APP"
@@ -31,4 +31,4 @@ grep -q 'x86_64' dist/architecture.txt
 grep -q 'minos 12.0' dist/deployment-target.txt
 cp docs/testing.md dist/READ-ME-FIRST.md
 ditto -c -k --sequesterRsrc --keepParent "$APP" dist/Jotport-macOS12-Intel.app.zip
-shasum -a 256 dist/Jotport-macOS12-Intel.app.zip > dist/SHA256SUMS
+(cd dist && shasum -a 256 Jotport-macOS12-Intel.app.zip > SHA256SUMS)

@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import Carbon
 import JotportCore
 
 final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextViewDelegate, NSSearchFieldDelegate {
@@ -13,7 +14,6 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     var root: URL!
     var watcher: DispatchSourceFileSystemObject?
     var editing = false
-    var processes: [Process] = []
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Jotport")
@@ -133,7 +133,8 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     @objc func settings() {
         let a = NSAlert(); a.messageText = "首次接入设置"; a.informativeText = "选择终端实际 .app 路径。CLI 路径必须为可执行文件；参数为 JSON 字符串数组。不会更改 Codex/pi 全局配置。"
         let names = ["WezTermApp", "GhosttyApp", "codexPath", "piPath", "directory", "arguments"]
-        let defaults = ["/Applications/WezTerm.app", "/Applications/Ghostty.app", "/usr/local/bin/codex", "/usr/local/bin/pi", FileManager.default.homeDirectoryForCurrentUser.path, "[]"]
+        let searchPath = agentSearchPath()
+        let defaults = ["/Applications/WezTerm.app", "/Applications/Ghostty.app", defaultAgentPath("codex", searchPath: searchPath), defaultAgentPath("pi", searchPath: searchPath), FileManager.default.homeDirectoryForCurrentUser.path, "[]"]
         let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading
         var fields: [NSTextField] = []
         for (key, value) in zip(names, defaults) { stack.addArrangedSubview(NSTextField(labelWithString: key)); let f = NSTextField(string: UserDefaults.standard.string(forKey: key) ?? value); f.widthAnchor.constraint(equalToConstant: 500).isActive = true; stack.addArrangedSubview(f); fields.append(f) }
@@ -141,8 +142,24 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         if a.runModal() == .alertFirstButtonReturn { for (key, f) in zip(names, fields) { UserDefaults.standard.set(f.stringValue, forKey: key) }; UserDefaults.standard.set(agent.titleOfSelectedItem, forKey: "agent"); UserDefaults.standard.set(terminal.titleOfSelectedItem, forKey: "terminal") }
     }
     func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
-    func capture(_ path: String, _ args: [String]) throws -> String {
+    func defaultAgentPath(_ name: String, searchPath: String) -> String {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let npmGlobal = name == "codex" ? [home.appendingPathComponent(".npm-global/bin/codex").path] : []
+        let system = "/usr/local/bin/\(name)"
+        let local = home.appendingPathComponent(".local/bin/\(name)").path
+        let candidates = npmGlobal + [system, local] + searchPath.split(separator: ":").map { "\($0)/\(name)" }
+        return candidates.first(where: FileManager.default.isExecutableFile(atPath:)) ?? system
+    }
+    func agentSearchPath() -> String {
+        let inherited = ProcessInfo.processInfo.environment["PATH"] ?? "/usr/bin:/bin:/usr/sbin:/sbin"
+        guard let shell = getpwuid(getuid())?.pointee.pw_shell,
+              let output = try? capture(String(cString: shell), ["-lc", "/usr/bin/printenv PATH"]),
+              let path = output.split(whereSeparator: \.isNewline).last, path.hasPrefix("/") else { return inherited }
+        return String(path)
+    }
+    func capture(_ path: String, _ args: [String], environment: [String: String]? = nil) throws -> String {
         let p = Process(); p.executableURL = URL(fileURLWithPath: path); p.arguments = args
+        p.environment = environment
         let out = Pipe(); p.standardOutput = out; p.standardError = out
         try p.run()
         // Bound diagnostics; never used as an input-readiness signal.
@@ -153,13 +170,45 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     }
     @objc func start() {
         guard let i = index else { return }
-        if blocks[i].run != nil {
-            consume()
-            guard let ref = blocks[i].run?.terminal, let pid = ref.processID, let app = NSRunningApplication(processIdentifier: pid), app.bundleURL?.path == ref.path, app.launchDate == ref.launchedAt else { alert("状态未知，启动请求已保留，未重复启动。请核对终端；确认原运行退出后可按原 ID 恢复。"); return }
-            // App activation is deliberately not claimed as exact pane focus.
-            app.activate(options: [.activateIgnoringOtherApps]); status.stringValue = "已返回终端应用；具体 pane 尚未核验，请自行选择。未重复预填。"; return
+        consume()
+        guard let run = blocks[i].run else { launch(i, restoring: false); return }
+        if run.status == "启动中" { return }
+        let original = run.terminal.flatMap(runningTerminal)
+        if canRetry(i, runID: run.id) {
+            let confirmation = NSAlert()
+            confirmation.messageText = "上一次启动未确认"
+            confirmation.informativeText = "先在原终端确认这个块没有对应的会话，再用当前选择的终端重试。"
+            confirmation.addButton(withTitle: "取消")
+            confirmation.addButton(withTitle: "确认重试")
+            if original != nil { confirmation.addButton(withTitle: "返回原终端") }
+            let choice = confirmation.runModal()
+            if choice == .alertSecondButtonReturn, canRetry(i, runID: run.id) {
+                launch(i, restoring: false)
+            } else if choice == .alertThirdButtonReturn, let original {
+                activateTerminal(original)
+            }
+            return
         }
-        launch(i, restoring: false)
+        guard let original else { alert("状态未知，启动请求已保留。请核对终端。确认原运行退出后可按原 ID 恢复。"); return }
+        activateTerminal(original)
+    }
+    func runningTerminal(_ ref: TerminalRef) -> NSRunningApplication? {
+        guard let pid = ref.processID, let launchedAt = ref.launchedAt,
+              let application = NSRunningApplication(processIdentifier: pid),
+              application.bundleURL?.resolvingSymlinksInPath().path == ref.path,
+              application.launchDate == launchedAt else { return nil }
+        return application
+    }
+    func activateTerminal(_ application: NSRunningApplication) {
+        application.activate(options: [.activateIgnoringOtherApps])
+        status.stringValue = "已返回终端应用。请在终端中选择对应窗口。"
+    }
+    func canRetry(_ i: Int, runID: String) -> Bool {
+        blocks[i].run?.id == runID && blocks[i].association?.sessionID == nil &&
+            !FileManager.default.fileExists(atPath: launchMarker(runID).path)
+    }
+    func launchMarker(_ runID: String) -> URL {
+        root.appendingPathComponent("runs/\(runID)/started")
     }
     @objc func resume() {
         guard let i = index, blocks[i].association?.sessionID != nil else { alert("尚无真实原生会话 ID，不能冒充恢复。pi 会自动上报；Codex 当前需完成正式 hooks 接入。"); return }
@@ -170,26 +219,37 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         let defaults = UserDefaults.standard
         let name = restoring ? blocks[i].association!.agent : (agent.titleOfSelectedItem ?? "codex")
         let term = terminal.titleOfSelectedItem ?? "WezTerm"
-        let path = defaults.string(forKey: term + "App") ?? "/Applications/\(term).app"
-        let cli = defaults.string(forKey: name + "Path") ?? "/usr/local/bin/\(name)"
+        let terminalURL = URL(fileURLWithPath: defaults.string(forKey: term + "App") ?? "/Applications/\(term).app").resolvingSymlinksInPath()
+        let path = terminalURL.path
+        guard !blocks.contains(where: { $0.run?.terminal?.path == path && $0.run?.status == "启动中" }) else {
+            alert("\(term) 正在启动另一个会话。请稍后再试。"); return
+        }
         let cwd = restoring ? blocks[i].association!.directory : (defaults.string(forKey: "directory") ?? FileManager.default.homeDirectoryForCurrentUser.path)
         do {
-            guard let bundle = Bundle(path: path), let identity = bundle.bundleIdentifier, let terminalCLI = bundle.executableURL, FileManager.default.isExecutableFile(atPath: cli), FileManager.default.fileExists(atPath: cwd) else { settings(); return }
-            let version = try capture(cli, ["--version"])
+            guard let bundle = Bundle(url: terminalURL), let identity = bundle.bundleIdentifier, let terminalCLI = bundle.executableURL else {
+                alert("找不到 \(term) 安装包。请在设置中检查路径 \(path)"); return
+            }
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory), isDirectory.boolValue else {
+                alert("工作目录不可用。请在设置中检查目录 \(cwd)"); return
+            }
+            let searchPath = agentSearchPath()
+            let cli = defaults.string(forKey: name + "Path") ?? defaultAgentPath(name, searchPath: searchPath)
+            guard FileManager.default.isExecutableFile(atPath: cli) else {
+                alert("无法执行 \(name)。请在设置中检查路径 \(cli)"); return
+            }
+            var agentEnvironment = ProcessInfo.processInfo.environment
+            agentEnvironment["PATH"] = searchPath
+            let version = try capture(cli, ["--version"], environment: agentEnvironment)
             let help = try capture(terminalCLI.path, ["--help"])
             let dictionary = (try? capture("/usr/bin/sdef", [path])) ?? "无可用脚本字典；不使用未经验证的 AppleScript 接口"
-            let diagnostics = "path=\(path)\nidentity=\(identity)\nappVersion=\(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "unknown")\nbuild=\(bundle.object(forInfoDictionaryKey: "CFBundleVersion") ?? "unknown")\nagent=\(version)\nhelp=\(help)\nsdef=\(dictionary)"
+            let diagnostics = "path=\(path)\nidentity=\(identity)\nappVersion=\(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "unknown")\nbuild=\(bundle.object(forInfoDictionaryKey: "CFBundleVersion") ?? "unknown")\nagentPath=\(cli)\nagent=\(version)\nhelp=\(help)\nsdef=\(dictionary)"
             try diagnostics.write(to: root.appendingPathComponent("last-probe.txt"), atomically: true, encoding: .utf8)
             guard let argsData = (defaults.string(forKey: "arguments") ?? "[]").data(using: .utf8), let extra = try? JSONDecoder().decode([String].self, from: argsData) else { alert("参数必须是 JSON 字符串数组"); return }
             // Arbitrary positional prompts could submit content. This preview accepts no custom agent args.
             guard extra.isEmpty else { alert("测试版暂不执行自定义参数，以避免位置参数被 CLI 当作初始 prompt 自动发送。"); return }
-            if term == "Ghostty", !help.contains("-e") { alert("当前 Ghostty 未探测到 -e 能力，未启动。诊断保存在 last-probe.txt。"); return }
             var run = Run(snapshot: restoring ? "" : blocks[i].body)
             run.terminal = TerminalRef(path: path, identity: identity, version: "\(bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") ?? "unknown")")
-            if !restoring { blocks[i].association = Association(agent: name, directory: cwd) }
-            blocks[i].run = run
-            // Persist request before any external side effect; uncertain requests are never automatically replayed.
-            try store.save(blocks[i])
             let dir = root.appendingPathComponent("runs/\(run.id)")
             try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             try run.snapshot.write(to: dir.appendingPathComponent("snapshot.txt"), atomically: true, encoding: .utf8)
@@ -197,20 +257,117 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
             if restoring, let id = blocks[i].association?.sessionID { argv += name == "codex" ? ["resume", id] : ["--session", id] }
             if name == "pi", let extensionURL = Bundle.main.url(forResource: "jotport", withExtension: "ts") { argv += ["--extension", extensionURL.path] }
             let environment = ["JOTPORT_RUN": run.id, "JOTPORT_INBOX": root.appendingPathComponent("inbox").path, "JOTPORT_SNAPSHOT": restoring ? "" : dir.appendingPathComponent("snapshot.txt").path, "JOTPORT_RUN_DIR": dir.path]
-            let script = "#!/bin/sh\ncd " + quote(cwd) + " || exit 1\n" + environment.map { "export \($0.key)=\(quote($0.value))" }.joined(separator: "\n") + "\n" + argv.map(quote).joined(separator: " ") + "\n"
+            let exports = environment.map { "export \($0.key)=\(quote($0.value))" }.joined(separator: "\n")
+            let script = """
+            #!/bin/sh
+            cd \(quote(cwd)) || exit 1
+            export PATH=\(quote(searchPath))
+            \(exports)
+            : > \(quote(launchMarker(run.id).path)) || exit 1
+            exec \(argv.map(quote).joined(separator: " "))
+            """
             let scriptURL = dir.appendingPathComponent("launch.sh"); try script.write(to: scriptURL, atomically: true, encoding: .utf8)
-            let p = Process()
-            if term == "WezTerm" { p.executableURL = terminalCLI; p.arguments = ["start", "--cwd", cwd, "--", "/bin/sh", scriptURL.path] }
-            else { p.executableURL = URL(fileURLWithPath: "/usr/bin/open"); p.arguments = ["-a", path, "--args", "-e", "/bin/sh", scriptURL.path] }
-            p.standardOutput = FileHandle.nullDevice; p.standardError = FileHandle.nullDevice
-            try p.run(); processes.append(p)
-            blocks[i].run?.status = "已请求打开，待粘贴；会话状态未知"
-            if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleURL?.path == path }) { blocks[i].run?.terminal?.processID = app.processIdentifier; blocks[i].run?.terminal?.launchedAt = app.launchDate }
-            try store.save(blocks[i]); detail(); reload()
+            var candidate = blocks[i]
+            if !restoring { candidate.association = Association(agent: name, directory: cwd) }
+            candidate.run = run
+            try store.save(candidate)
+            blocks[i] = candidate
+            detail(); reload()
+
+            openTerminal(term, at: terminalURL, identity: identity, executable: terminalCLI, script: scriptURL, cwd: cwd, runID: run.id)
         } catch {
-            if blocks[i].run != nil { blocks[i].run?.status = "状态未知：\(error.localizedDescription)"; save(i) }
-            alert("启动/探测未完成：\(error.localizedDescription)。未决请求不会自动重放。")
+            alert("启动准备失败。\(error.localizedDescription)")
         }
+    }
+    func openTerminal(_ name: String, at url: URL, identity: String, executable: URL, script: URL, cwd: String, runID: String) {
+        let running = NSRunningApplication.runningApplications(withBundleIdentifier: identity)
+        let existing = running.filter { !$0.isTerminated && $0.bundleURL?.resolvingSymlinksInPath().path == url.path }
+        if let application = existing.first(where: \.isActive) ?? existing.first {
+            DispatchQueue.global().async { [self] in
+                do {
+                    if name == "WezTerm" {
+                        try openWezTermTab(application: application, executable: executable, script: script, cwd: cwd)
+                    } else {
+                        try openGhosttyTab(application: application, script: script, cwd: cwd)
+                    }
+                    DispatchQueue.main.async {
+                        application.activate(options: [.activateIgnoringOtherApps])
+                        self.confirmLaunch(runID, application: application, deadline: ProcessInfo.processInfo.systemUptime + 10)
+                    }
+                } catch {
+                    DispatchQueue.main.async {
+                        self.finishLaunch(runID, status: "无法在 \(name) 打开标签页。\(error.localizedDescription)")
+                    }
+                }
+            }
+            return
+        }
+
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = !running.isEmpty
+        config.arguments = (name == "WezTerm" ? ["start", "--always-new-process", "--cwd", cwd, "--"] : ["-e"]) + ["/bin/sh", script.path]
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { [weak self] application, error in
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if let application {
+                    self.confirmLaunch(runID, application: application, deadline: ProcessInfo.processInfo.systemUptime + 10)
+                } else {
+                    self.finishLaunch(runID, status: "打开 \(name) 失败。\(error?.localizedDescription ?? "系统未返回启动结果。")")
+                }
+            }
+        }
+    }
+    func openWezTermTab(application: NSRunningApplication, executable: URL, script: URL, cwd: String) throws {
+        let pid = application.processIdentifier
+        let sockets = try? capture("/usr/sbin/lsof", ["-n", "-a", "-p", String(pid), "-U", "-Fn"])
+        guard let socket = sockets?.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("n/") && $0.hasSuffix("/gui-sock-\(pid)") }) else {
+            throw NSError(domain: "WezTerm", code: 1, userInfo: [NSLocalizedDescriptionKey: "未找到当前 WezTerm 实例的连接。请检查终端后重试。"])
+        }
+        var environment = ProcessInfo.processInfo.environment
+        environment.removeValue(forKey: "WEZTERM_PANE")
+        environment["WEZTERM_UNIX_SOCKET"] = String(socket.dropFirst())
+        let cli = executable.deletingLastPathComponent().appendingPathComponent("wezterm")
+        _ = try capture(cli.path, ["cli", "--no-auto-start", "spawn", "--cwd", cwd, "--", "/bin/sh", script.path], environment: environment)
+    }
+    func openGhosttyTab(application: NSRunningApplication, script: URL, cwd: String) throws {
+        func code(_ value: StaticString) -> FourCharCode {
+            value.withUTF8Buffer { bytes in bytes.reduce(0) { ($0 << 8) | FourCharCode($1) } }
+        }
+        let target = NSAppleEventDescriptor(processIdentifier: application.processIdentifier)
+        let event = NSAppleEventDescriptor(eventClass: code("Ghst"), eventID: code("NTab"), targetDescriptor: target, returnID: AEReturnID(kAutoGenerateReturnID), transactionID: AETransactionID(kAnyTransactionID))
+        let configuration = NSAppleEventDescriptor.record()
+        configuration.setDescriptor(NSAppleEventDescriptor(string: "/bin/sh " + quote(script.path)), forKeyword: code("GScC"))
+        configuration.setDescriptor(NSAppleEventDescriptor(string: cwd), forKeyword: code("GScD"))
+        event.setParam(configuration, forKeyword: code("GNtS"))
+        do {
+            let reply = try event.sendEvent(options: [.waitForReply, .canInteract], timeout: 30)
+            if let number = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorNumber))?.int32Value, number != 0 {
+                let message = reply.paramDescriptor(forKeyword: AEKeyword(keyErrorString))?.stringValue ?? "Ghostty 脚本错误 \(number)"
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(number), userInfo: [NSLocalizedDescriptionKey: message])
+            }
+        } catch let error as NSError where error.domain == NSOSStatusErrorDomain && error.code == Int(errAEEventNotPermitted) {
+            throw NSError(domain: error.domain, code: error.code, userInfo: [NSLocalizedDescriptionKey: "请在系统偏好设置的「安全性与隐私」中允许 Jotport 自动化控制 Ghostty。"])
+        }
+    }
+    func confirmLaunch(_ runID: String, application: NSRunningApplication, deadline: TimeInterval) {
+        if FileManager.default.fileExists(atPath: launchMarker(runID).path) {
+            finishLaunch(runID, status: "终端已执行启动脚本，等待会话。", application: application)
+        } else if application.isTerminated || ProcessInfo.processInfo.systemUptime >= deadline {
+            finishLaunch(runID, status: "未确认终端执行启动脚本。点击「启动 / 返回」可核对后重试。")
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+                self?.confirmLaunch(runID, application: application, deadline: deadline)
+            }
+        }
+    }
+    func finishLaunch(_ runID: String, status: String, application: NSRunningApplication? = nil) {
+        guard let i = blocks.firstIndex(where: { $0.run?.id == runID }) else { return }
+        if blocks[i].run?.status == "启动中" { blocks[i].run?.status = status }
+        if let application {
+            blocks[i].run?.terminal?.processID = application.processIdentifier
+            blocks[i].run?.terminal?.launchedAt = application.launchDate
+        }
+        save(i); detail(); reload()
     }
 }
 let app = NSApplication.shared

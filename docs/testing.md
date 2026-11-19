@@ -8,9 +8,9 @@
 ## 可测试功能
 原生多段编辑、同步 SQLite 自动保存、正文/关联 ID/概况搜索、包含归档、置顶、同分区拖动、整块复制、归档恢复、持久删除撤销、窗口置顶。数据位于 `~/Library/Application Support/Jotport`。退出应用、归档和删除不会结束 agent。
 
-设置终端实际 app 路径、CLI 可执行文件和目录。先选择 agent/终端，再在“设置”保存默认值。参数预留 JSON 字段，但当前拒绝非空数组，避免 CLI 初始 prompt 自动发送。运行时记录 bundle identity、版本/构建号、CLI version/help 与实际 sdef 到 `last-probe.txt`。这些诊断不是适配成功的证明。
+在「设置」中可指定终端的 `.app` 路径、agent 可执行文件和工作目录。Codex 默认优先使用 `~/.npm-global/bin/codex`。Jotport 也会查找 `/usr/local/bin`、`~/.local/bin` 和登录 shell 的 `PATH`。探测 agent 版本和启动 agent 使用同一份 `PATH`。自定义参数当前仅接受空数组 `[]`，避免 CLI 自动发送初始提示词。终端和 agent 的探测结果保存在 `last-probe.txt`。
 
-WezTerm 使用所选安装包的 start 命令；Ghostty 只有探测到 -e 时才尝试命令启动。两者没有取得并验证具体 pane 的实现，返回仅在进程身份匹配时激活终端应用，并明确要求手动选择 pane。失败/超时/重启不会自动重放启动请求。未决启动目前需要人工核对，不能一键清锁。
+终端已运行时，Jotport 在现有应用中打开标签页。首次用 Jotport 在已打开的 Ghostty 中创建标签页时，macOS 可能要求授予自动化权限。终端尚未运行时，Jotport 会启动它并执行启动脚本。再次点击「启动 / 返回」会激活已记录的终端应用，请在其中选择对应标签页。若出现「上一次启动未确认」，先检查原终端中是否有对应会话。确认没有后，选择所需终端并点击「确认重试」。
 
 pi 通过单次 `--extension` 加载随包扩展，不写全局配置。扩展从 sessionManager 获取原生 ID；编辑 API 可用时只调用 setEditorText，绝不 sendMessage。预填尝试标记先持久化，避免扩展 reload 后重注入。agent_start 和 agent_settled 上报真实事件。较旧版本缺少最终事件时不能判定完成。需要输入/授权的细分类别尚未接入。
 
