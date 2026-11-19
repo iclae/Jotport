@@ -516,6 +516,37 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     private func pickLaunchDirectory(_ request: SessionLaunch.DirectoryPrompt) -> String? {
+        let paths = RecentLaunchDirectories().paths
+        if !paths.isEmpty {
+            let choice = NSAlert()
+            choice.messageText = "选择启动路径"
+            if case let .unavailable(path) = request {
+                choice.informativeText = "原启动路径已不可用：\(path)\n选择最近使用的目录，或选择其他目录。"
+            } else {
+                choice.informativeText = "最近使用的目录"
+            }
+            let recent = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 460, height: 28))
+            recent.setAccessibilityLabel("最近使用的启动目录")
+            for path in paths {
+                let url = URL(fileURLWithPath: path, isDirectory: true)
+                recent.addItem(withTitle: "\(url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent) — \(url.deletingLastPathComponent().path)")
+                recent.lastItem?.toolTip = path
+            }
+            choice.accessoryView = recent
+            choice.addButton(withTitle: "使用所选目录")
+            choice.addButton(withTitle: "选择其他目录…")
+            choice.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+            switch choice.runModal() {
+            case .alertFirstButtonReturn:
+                let path = paths[recent.indexOfSelectedItem]
+                if RecentLaunchDirectories.isAvailable(path) { return path }
+                alert("所选目录已不可用，请选择其他目录。")
+            case .alertSecondButtonReturn:
+                break
+            default:
+                return nil
+            }
+        }
         let panel = NSOpenPanel()
         panel.title = "选择启动路径"
         panel.prompt = "选择"

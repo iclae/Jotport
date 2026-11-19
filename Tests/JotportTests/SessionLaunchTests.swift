@@ -41,6 +41,40 @@ final class SessionLaunchTests: XCTestCase {
         XCTAssertTrue(fixture.alerts.isEmpty)
     }
 
+    func testDirectoryCancellationChangeStaleReplacementAndReuse() throws {
+        let fixture = try Fixture()
+        let recent = RecentLaunchDirectories(preferences: fixture.preferences)
+        try fixture.save(Block())
+        fixture.perform(.startOrReturn)
+        XCTAssertTrue(fixture.openings.isEmpty)
+        XCTAssertTrue(recent.paths.isEmpty)
+        XCTAssertNil(fixture.block.launchDirectory)
+
+        fixture.chooseDirectory = { _ in fixture.workingDirectory.path }
+        fixture.perform(.changeDirectory)
+        XCTAssertTrue(fixture.openings.isEmpty)
+        XCTAssertEqual(recent.paths, [fixture.workingDirectory.path])
+        fixture.chooseDirectory = { _ in XCTFail("Valid remembered path must not prompt"); return nil }
+        fixture.perform(.startOrReturn)
+        XCTAssertEqual(fixture.openings.count, 1)
+
+        let replacement = try Fixture()
+        var stale = Block()
+        stale.launchDirectory = replacement.root.appendingPathComponent("missing").path
+        try replacement.save(stale)
+        replacement.chooseDirectory = { request in
+            guard case .unavailable = request else { XCTFail("Expected stale replacement"); return nil }
+            return nil
+        }
+        replacement.perform(.startOrReturn)
+        XCTAssertEqual(replacement.block, stale)
+        XCTAssertTrue(replacement.openings.isEmpty)
+        replacement.chooseDirectory = { _ in replacement.workingDirectory.path }
+        replacement.perform(.startOrReturn)
+        XCTAssertEqual(replacement.openings.count, 1)
+        XCTAssertEqual(RecentLaunchDirectories(preferences: replacement.preferences).paths, [replacement.workingDirectory.path])
+    }
+
     func testRetryRechecksTheMarkerAndRecordsThePreviousBinding() throws {
         let fixture = try Fixture()
         var block = Block()
