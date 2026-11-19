@@ -45,13 +45,14 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             blocks = try store.load()
             for i in blocks.indices where blocks[i].run != nil && blocks[i].run?.status != "已退出" { blocks[i].run?.status = "状态未知：需核对终端"; try store.save(blocks[i]) }
         } catch { fatalError("无法打开本地数据库：\(error)") }
-        buildUI(); reload(); consume()
+        buildUI(); reload()
         let fd = open(root.appendingPathComponent("inbox").path, O_EVTONLY)
         if fd >= 0 {
             watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
             watcher?.setEventHandler { [weak self] in self?.consume() }
             watcher?.setCancelHandler { close(fd) }; watcher?.resume()
         }
+        consume()
         if blocks.isEmpty { newBlock() }
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
@@ -502,7 +503,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         root.appendingPathComponent("runs/\(runID)/started")
     }
     func resume(_ i: Int) {
-        guard blocks[i].association?.sessionID != nil else { alert("尚无真实原生会话 ID，不能冒充恢复。pi 会自动上报；Codex 当前需完成正式 hooks 接入。"); return }
+        guard blocks[i].association?.sessionID != nil else { alert("尚未收到会话 ID，无法恢复原会话。"); return }
         guard blocks[i].run?.status == "已退出" else { alert("尚未确认对应运行退出；为防止重复运行，暂不恢复。"); return }
         launch(i, restoring: true)
     }
@@ -547,6 +548,16 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             var argv = [cli]
             if restoring, let id = blocks[i].association?.sessionID { argv += name == "codex" ? ["resume", id] : ["--session", id] }
             if name == "pi", let extensionURL = Bundle.main.url(forResource: "jotport", withExtension: "ts") { argv += ["--extension", extensionURL.path] }
+            var command = "exec \(argv.map(quote).joined(separator: " "))"
+            if name == "codex", let helper = Bundle.main.executableURL,
+               let serverHelp = try? capture(cli, ["app-server", "--help"], environment: agentEnvironment),
+               serverHelp.contains("--ws-token-file"),
+               let cliHelp = try? capture(cli, ["--help"], environment: agentEnvironment),
+               cliHelp.contains("--remote-auth-token-env") {
+                command = CodexBridge.launchCommand(helper: helper, cli: cli,
+                                                    sessionID: restoring ? blocks[i].association?.sessionID : nil,
+                                                    quote: quote)
+            }
             let environment = ["JOTPORT_RUN": run.id, "JOTPORT_INBOX": root.appendingPathComponent("inbox").path, "JOTPORT_SNAPSHOT": restoring ? "" : dir.appendingPathComponent("snapshot.txt").path, "JOTPORT_RUN_DIR": dir.path]
             let exports = environment.map { "export \($0.key)=\(quote($0.value))" }.joined(separator: "\n")
             let script = """
@@ -555,7 +566,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             export PATH=\(quote(searchPath))
             \(exports)
             : > \(quote(launchMarker(run.id).path)) || exit 1
-            exec \(argv.map(quote).joined(separator: " "))
+            \(command)
             """
             let scriptURL = dir.appendingPathComponent("launch.sh"); try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             var candidate = blocks[i]
@@ -660,6 +671,10 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         }
         save(i); reload()
     }
+}
+let arguments = CommandLine.arguments
+if arguments.count >= 3, arguments[1] == CodexBridge.argument {
+    CodexBridge.run(executable: arguments[2], expectedSessionID: arguments.dropFirst(3).first)
 }
 let app = NSApplication.shared
 let delegate = App()

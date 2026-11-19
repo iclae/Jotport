@@ -57,6 +57,20 @@ public struct BridgeEvent: Codable {
     public var type: String
     public var time: String
     public var text: String?
+
+    public init(schemaVersion: Int, eventID: String, runID: String, sessionID: String, turnID: Int,
+                sequence: Int, source: String, type: String, time: String, text: String? = nil) {
+        self.schemaVersion = schemaVersion
+        self.eventID = eventID
+        self.runID = runID
+        self.sessionID = sessionID
+        self.turnID = turnID
+        self.sequence = sequence
+        self.source = source
+        self.type = type
+        self.time = time
+        self.text = text
+    }
 }
 public enum Reducer {
     @discardableResult public static func apply(_ e: BridgeEvent, to b: inout Block) -> Bool {
@@ -74,6 +88,7 @@ public enum Reducer {
         case "bound": r.status = "已打开，待粘贴"
         case "prefilled": r.status = "待发送"; r.injected = true
         case "running": r.status = "运行中"
+        case "idle": r.status = "空闲"
         case "waiting": r.status = "需要输入"; b.attention = e.eventID; b.attentionTime = e.time
         case "settled":
             guard e.turnID > 0 else { b.run = r; return true }

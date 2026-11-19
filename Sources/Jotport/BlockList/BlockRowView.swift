@@ -283,7 +283,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         switch statusText {
         case "启动中", "终端已执行启动脚本，等待会话。":
             (symbol, color) = ("hourglass", .secondaryLabelColor)
-        case "待发送", "已打开，待粘贴":
+        case "待发送", "已打开，待粘贴", "空闲":
             (symbol, color) = ("text.cursor", .systemBlue)
         case "运行中":
             (symbol, color) = ("play.circle", .systemGreen)

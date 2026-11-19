@@ -16,12 +16,12 @@
 
 pi 通过单次 `--extension` 加载随包扩展，不写全局配置。扩展从 sessionManager 获取原生 ID；编辑 API 可用时只调用 setEditorText，绝不 sendMessage。预填尝试标记先持久化，避免扩展 reload 后重注入。agent_start 和 agent_settled 上报真实事件。较旧版本缺少最终事件时不能判定完成。需要输入/授权的细分类别尚未接入。
 
-Codex 当前只会打开 CLI。点击「复制」，看到「已复制」后，在 CLI 中粘贴并发送。尚未接入 Codex 正式 hooks，不自动绑定真实 ID、不伪造状态，不扫描 ~/.codex。按 ID 恢复目前仅对已收到退出事件及真实 ID 的关联开放。不得把该组合标为自动预填通过。
+从 Jotport 新启动的 Codex 会话通过本机 App Server 上报会话 ID 和状态。本机验证使用 Codex CLI 0.170.0。连接建立后，块左侧显示会话状态图标，悬停可查看状态。旧版 Codex 或状态服务启动失败时，仍可在终端中使用 CLI。更新前启动的会话需要从新块重新启动才能显示状态。点击「复制」，在 CLI 中粘贴正文并手动发送。
 
 ## 撤销接入
 结束自己需要结束的终端会话；退出 Jotport 并删除 app。pi 扩展只通过本次启动参数加载，不修改用户配置。要保留笔记，保留 Application Support/Jotport；删除该目录会删除笔记、会话关联和事件，不会终止终端进程。
 
 ## 尚未完成
-四组合（Ghostty 1.4.0/WezTerm × Codex/pi）的 macOS 12 Intel 实机验收全部待做。CI 仅证明在较新 macOS 编译/启动，不能证明 Monterey 运行、中文输入法、Spaces/全屏、登录/信任提示时预填、具体 pane 定位、异常退出/唤醒对账、按原 ID 恢复。Codex hooks、可靠 pane 控制、独立结束 agent、单块目录覆盖、编辑期间关注重排的完整顺序与持久化、归档关注专门入口、资源测量均待完成。不会将这些缺口从首版规格删除。
+四组合（Ghostty 1.4.0/WezTerm × Codex/pi）的 macOS 12 Intel 完整实机验收待做。CI 仅证明在较新 macOS 编译/启动，不能证明 Monterey 运行、中文输入法、Spaces/全屏、登录/信任提示时预填、具体 pane 定位、异常退出/唤醒对账、按原 ID 恢复。Codex 预填、可靠 pane 控制、独立结束 agent、单块目录覆盖、编辑期间关注重排的完整顺序与持久化、归档关注专门入口、资源测量均待完成。不会将这些缺口从首版规格删除。
 
 本机构建：安装 Xcode 命令行工具，运行 `swift test` 和 `bash scripts/package.sh`。Linux 可使用 Swift 5.10 + libsqlite3-dev 执行 `swift test`；UI 在 Linux 不运行。
