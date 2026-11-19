@@ -13,3 +13,6 @@ xcuserdata/
 *.xcuserstate
 *.xcarchive/
 *.dSYM/
+
+# 本地打包产物
+/dist/
