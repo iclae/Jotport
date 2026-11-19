@@ -6,6 +6,7 @@ public struct Association: Codable, Equatable {
     public var agent: String
     public var sessionID: String?
     public var directory: String
+    public var detachedRunID: String?
     public init(agent: String, directory: String) { self.agent = agent; self.directory = directory }
 }
 public struct TerminalRef: Codable, Equatable {
@@ -34,6 +35,7 @@ public struct Block: Codable, Equatable, Identifiable {
     public var deleted = false
     public var created = Date()
     public var updated = Date()
+    public var launchDirectory: String?
     public var association: Association?
     public var history: [Association] = []
     public var run: Run?
@@ -45,6 +47,22 @@ public struct Block: Codable, Equatable, Identifiable {
     public var attentionTime: String?
     public var seenEvents: Set<String> = []
     public init() {}
+
+    public mutating func clearBinding() {
+        guard var association else { return }
+        association.detachedRunID = run?.id
+        history.append(association)
+        launchDirectory = launchDirectory ?? association.directory
+        self.association = nil
+        run = nil
+        recap = ""
+        recapSource = ""
+        recapHidden = nil
+        attention = nil
+        attentionPromoted = nil
+        attentionTime = nil
+        seenEvents.removeAll()
+    }
 }
 public struct BridgeEvent: Codable {
     public var schemaVersion: Int
@@ -74,10 +92,14 @@ public struct BridgeEvent: Codable {
 }
 public enum Reducer {
     @discardableResult public static func apply(_ e: BridgeEvent, to b: inout Block) -> Bool {
-        guard e.schemaVersion == 1, var r = b.run, r.id == e.runID,
-              e.sequence > r.lastSequence, e.turnID >= r.turn,
-              !b.seenEvents.contains(e.eventID), e.source == b.association?.agent,
-              !e.sessionID.isEmpty else { return false }
+        guard e.schemaVersion == 1, !e.sessionID.isEmpty else { return false }
+        guard var r = b.run, r.id == e.runID else {
+            guard let index = b.history.firstIndex(where: { $0.detachedRunID == e.runID && $0.agent == e.source && $0.sessionID == nil }) else { return false }
+            b.history[index].sessionID = e.sessionID
+            return true
+        }
+        guard e.sequence > r.lastSequence, e.turnID >= r.turn,
+              !b.seenEvents.contains(e.eventID), e.source == b.association?.agent else { return false }
         guard b.association?.sessionID == nil || b.association?.sessionID == e.sessionID else {
             r.status = "状态未知：终端会话已切换"; b.run = r; return false
         }

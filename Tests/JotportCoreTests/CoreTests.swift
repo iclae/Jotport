@@ -1,6 +1,66 @@
 import XCTest
 @testable import JotportCore
 final class CoreTests: XCTestCase {
+    func testBlocksKeepTheirOwnLaunchDirectories() throws {
+        let store = try Store(path: ":memory:")
+        var first = Block()
+        first.launchDirectory = "/Projects/Jotport"
+        var second = Block()
+        second.launchDirectory = "/Projects/Another Project"
+        let unset = Block()
+        try store.save([first, second, unset])
+
+        let blocks = try store.load()
+        XCTAssertEqual(blocks.first { $0.id == first.id }?.launchDirectory, "/Projects/Jotport")
+        XCTAssertEqual(blocks.first { $0.id == second.id }?.launchDirectory, "/Projects/Another Project")
+        XCTAssertNil(blocks.first { $0.id == unset.id }?.launchDirectory)
+    }
+
+    func testClearingBindingKeepsSessionSearchableAndReleasesBlock() throws {
+        let store = try Store(path: ":memory:")
+        var block = Block()
+        block.body = "项目笔记"
+        block.association = Association(agent: "pi", directory: "/Projects/Original")
+        block.run = Run(snapshot: block.body)
+        let reply = try event(block, "settled", sequence: 1)
+        XCTAssertTrue(Reducer.apply(reply, to: &block))
+
+        block.clearBinding()
+        block.clearBinding()
+        try store.save(block)
+
+        var saved = try XCTUnwrap(store.load().first)
+        XCTAssertEqual(saved.body, "项目笔记")
+        XCTAssertEqual(saved.launchDirectory, "/Projects/Original")
+        XCTAssertNil(saved.association)
+        XCTAssertNil(saved.run)
+        XCTAssertNil(saved.attention)
+        XCTAssertEqual(saved.history.map(\.sessionID), ["real-id"])
+        XCTAssertTrue(Reducer.matches(saved, query: "real-id", archived: false))
+        XCTAssertFalse(Reducer.apply(reply, to: &saved))
+    }
+
+    func testLateSessionIDUpdatesOnlyHistoryAfterClearingBinding() throws {
+        let store = try Store(path: ":memory:")
+        var block = Block()
+        block.association = Association(agent: "pi", directory: "/Projects/Original")
+        block.run = Run(snapshot: "first")
+        let lateEvent = try event(block, "settled", sequence: 1, session: "original-id")
+        block.clearBinding()
+        block.launchDirectory = "/Projects/Second"
+        block.association = Association(agent: "pi", directory: "/Projects/Second")
+        block.run = Run(snapshot: "second")
+        try store.save(block)
+
+        var saved = try XCTUnwrap(store.load().first)
+        XCTAssertTrue(Reducer.apply(lateEvent, to: &saved))
+        XCTAssertTrue(Reducer.matches(saved, query: "original-id", archived: false))
+        XCTAssertEqual(saved.association, block.association)
+        XCTAssertEqual(saved.run, block.run)
+        XCTAssertNil(saved.attention)
+        XCTAssertFalse(Reducer.apply(lateEvent, to: &saved))
+    }
+
     func testSQLiteRoundtripAndSearch() throws {
         let path = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString).path
         let store = try Store(path: path)

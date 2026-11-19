@@ -10,9 +10,11 @@
 
 直接在各块内编辑正文。鼠标悬停时，通过左侧手柄排序，或通过右侧「…」展开块快捷操作。点击「…」可查看完整菜单。「编辑」菜单下的「撤销删除块」可恢复最近删除的块。块有最近回复摘录时，可在摘录右侧隐藏，也可从「…」菜单中重新打开。
 
-在「设置」中可调整块快捷操作的顺序，也可指定默认终端、默认 agent、终端的 `.app` 路径、agent 可执行文件和工作目录。Codex 默认优先使用 `~/.npm-global/bin/codex`。Jotport 也会查找 `/usr/local/bin`、`~/.local/bin` 和登录 shell 的 `PATH`。探测 agent 版本和启动 agent 使用同一份 `PATH`。自定义参数当前仅接受空数组 `[]`，避免 CLI 自动发送初始提示词。终端和 agent 的探测结果保存在 `last-probe.txt`。
+在「设置」中可调整块快捷操作的顺序，也可指定默认终端、默认 agent、终端的 `.app` 路径和 agent 可执行文件。Codex 默认优先使用 `~/.npm-global/bin/codex`。Jotport 也会查找 `/usr/local/bin`、`~/.local/bin` 和登录 shell 的 `PATH`。探测 agent 版本和启动 agent 使用同一份 `PATH`。自定义参数当前仅接受空数组 `[]`，避免 CLI 自动发送初始提示词。终端和 agent 的探测结果保存在 `last-probe.txt`。
 
-终端已运行时，Jotport 在现有应用中打开标签页。首次用 Jotport 在已打开的 Ghostty 中创建标签页时，macOS 可能要求授予自动化权限。终端尚未运行时，Jotport 会启动它并执行启动脚本。再次点击「启动 / 返回」会激活已记录的终端应用，请在其中选择对应标签页。若出现「上一次启动未确认」，先检查原终端中是否有对应会话。确认没有后，点击「确认重试」以使用当前默认设置重试。
+初次启动时为块选择文件夹。Jotport 会记住该块的启动路径。未绑定会话时，可从块菜单选择「修改启动路径…」。原目录失效时，下次启动会提示重选。绑定会话后，可从块菜单选择「清理绑定」。路径保留并可修改，旧会话可用会话 ID 搜索，正在运行的 agent 会继续在终端运行。
+
+终端已运行时，Jotport 在现有应用中打开标签页。首次用 Jotport 在已打开的 Ghostty 中创建标签页时，macOS 可能要求授予自动化权限。终端尚未运行时，Jotport 会启动它并执行启动脚本。再次点击「启动 / 返回」会激活已记录的终端应用，请在其中选择对应标签页。若出现「上一次启动未确认」，先检查原终端中是否有对应会话。确认没有后，点击「确认重试」以使用块的启动路径和当前默认终端、agent 重试。
 
 pi 通过单次 `--extension` 加载随包扩展，不写全局配置。扩展从 sessionManager 获取原生 ID；编辑 API 可用时只调用 setEditorText，绝不 sendMessage。预填尝试标记先持久化，避免扩展 reload 后重注入。agent_start 和 agent_settled 上报真实事件。较旧版本缺少最终事件时不能判定完成。需要输入/授权的细分类别尚未接入。
 
@@ -22,6 +24,6 @@ pi 通过单次 `--extension` 加载随包扩展，不写全局配置。扩展�
 结束自己需要结束的终端会话；退出 Jotport 并删除 app。pi 扩展只通过本次启动参数加载，不修改用户配置。要保留笔记，保留 Application Support/Jotport；删除该目录会删除笔记、会话关联和事件，不会终止终端进程。
 
 ## 尚未完成
-四组合（Ghostty 1.4.0/WezTerm × Codex/pi）的 macOS 12 Intel 完整实机验收待做。CI 仅证明在较新 macOS 编译/启动，不能证明 Monterey 运行、中文输入法、Spaces/全屏、登录/信任提示时预填、具体 pane 定位、异常退出/唤醒对账、按原 ID 恢复。Codex 预填、可靠 pane 控制、独立结束 agent、单块目录覆盖、编辑期间关注重排的完整顺序与持久化、归档关注专门入口、资源测量均待完成。不会将这些缺口从首版规格删除。
+四组合（Ghostty 1.4.0/WezTerm × Codex/pi）的 macOS 12 Intel 完整实机验收待做。CI 仅证明在较新 macOS 编译/启动，不能证明 Monterey 运行、中文输入法、Spaces/全屏、登录/信任提示时预填、具体 pane 定位、异常退出/唤醒对账、按原 ID 恢复。Codex 预填、可靠 pane 控制、独立结束 agent、编辑期间关注重排的完整顺序与持久化、归档关注专门入口、资源测量均待完成。不会将这些缺口从首版规格删除。
 
 本机构建：安装 Xcode 命令行工具，运行 `swift test` 和 `bash scripts/package.sh`。Linux 可使用 Swift 5.10 + libsqlite3-dev 执行 `swift test`；UI 在 Linux 不运行。

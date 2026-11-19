@@ -13,6 +13,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     var root: URL!
     var watcher: DispatchSourceFileSystemObject?
     var editingID: String?
+    private var terminalLaunchPaths: [String: String] = [:]
     private let shortcutKey = "blockShortcuts"
     private let copyFeedback = NSVisualEffectView()
     private let copyFeedbackLabel = NSTextField(labelWithString: "已复制")
@@ -231,7 +232,9 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     private func availableActions(_ block: Block) -> [BlockActionItem] {
         BlockAction.allCases.compactMap { action in
             switch action {
-            case .chooseLaunch where block.run != nil:
+            case .chooseLaunch where block.association != nil, .chooseDirectory where block.association != nil:
+                return nil
+            case .clearBinding where block.association == nil:
                 return nil
             case .pin where block.pinned:
                 return BlockActionItem(action: action, title: "取消置顶")
@@ -259,6 +262,17 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             return
         case .chooseLaunch:
             chooseLaunch(i)
+            return
+        case .chooseDirectory:
+            if blocks[i].association == nil, let path = pickLaunchDirectory(blocks[i].launchDirectory) {
+                saveLaunchDirectory(path, at: i)
+            }
+            return
+        case .clearBinding:
+            guard blocks[i].association != nil else { return }
+            var updated = blocks[i]
+            updated.clearBinding()
+            saveBlockChange(updated, at: i)
             return
         case .copyBody:
             if copy(blocks[i].body) { showCopyFeedback() }
@@ -334,8 +348,22 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         guard let urls = try? FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("inbox"), includingPropertiesForKeys: nil) else { return }
         let events = urls.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, BridgeEvent)? in guard let d = try? Data(contentsOf: url), d.count < 100_000, let e = try? JSONDecoder().decode(BridgeEvent.self, from: d) else { return nil }; return (url, e) }.sorted { $0.1.sequence < $1.1.sequence }
         for (url, event) in events {
-            if let i = blocks.firstIndex(where: { $0.run?.id == event.runID }) {
-                if Reducer.apply(event, to: &blocks[i]) { do { try store.save(blocks[i]); try? FileManager.default.removeItem(at: url) } catch { alert("事件保存失败：\(error)") } }
+            let current = blocks.firstIndex(where: { $0.run?.id == event.runID })
+            let historical = current == nil ? blocks.firstIndex(where: { block in
+                block.history.contains { $0.detachedRunID == event.runID }
+            }) : nil
+            guard let i = current ?? historical else { continue }
+            var updated = blocks[i]
+            if Reducer.apply(event, to: &updated) {
+                do {
+                    try store.save(updated)
+                    blocks[i] = updated
+                    try? FileManager.default.removeItem(at: url)
+                } catch { alert("事件保存失败：\(error)") }
+            } else if historical != nil {
+                try? FileManager.default.removeItem(at: url)
+            } else {
+                blocks[i] = updated
             }
         }
         refresh()
@@ -370,7 +398,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     }
 
     private func chooseLaunch(_ i: Int) {
-        guard blocks[i].run == nil else { return }
+        guard blocks[i].association == nil else { return }
         let (agent, terminal) = launchPickers()
         let row = pickerRow(agent, terminal)
         row.frame.size = row.fittingSize
@@ -380,7 +408,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         alert.accessoryView = row
         alert.addButton(withTitle: "启动")
         alert.addButton(withTitle: "取消")
-        if alert.runModal() == .alertFirstButtonReturn, blocks[i].run == nil, !blocks[i].deleted {
+        if alert.runModal() == .alertFirstButtonReturn, blocks[i].association == nil, !blocks[i].deleted {
             launch(i, restoring: false, options: LaunchOptions(agent: agent.titleOfSelectedItem ?? LaunchOptions.saved.agent, terminal: terminal.titleOfSelectedItem ?? LaunchOptions.saved.terminal))
         }
     }
@@ -389,10 +417,10 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         let alert = NSAlert()
         alert.messageText = "Jotport 设置"
         let (agent, terminal) = launchPickers()
-        let names = ["WezTermApp", "GhosttyApp", "codexPath", "piPath", "directory", "arguments"]
-        let labels = ["WezTerm 应用路径", "Ghostty 应用路径", "Codex 可执行文件", "pi 可执行文件", "默认工作目录", "参数（JSON 字符串数组）"]
+        let names = ["WezTermApp", "GhosttyApp", "codexPath", "piPath", "arguments"]
+        let labels = ["WezTerm 应用路径", "Ghostty 应用路径", "Codex 可执行文件", "pi 可执行文件", "参数（JSON 字符串数组）"]
         let searchPath = agentSearchPath()
-        let defaults = ["/Applications/WezTerm.app", "/Applications/Ghostty.app", defaultAgentPath("codex", searchPath: searchPath), defaultAgentPath("pi", searchPath: searchPath), FileManager.default.homeDirectoryForCurrentUser.path, "[]"]
+        let defaults = ["/Applications/WezTerm.app", "/Applications/Ghostty.app", defaultAgentPath("codex", searchPath: searchPath), defaultAgentPath("pi", searchPath: searchPath), "[]"]
         let stack = NSStackView(views: [pickerRow(agent, terminal)])
         stack.orientation = .vertical
         stack.alignment = .leading
@@ -476,7 +504,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             if original != nil { confirmation.addButton(withTitle: "返回原终端") }
             let choice = confirmation.runModal()
             if choice == .alertSecondButtonReturn, canRetry(i, runID: run.id) {
-                launch(i, restoring: false)
+                launch(i, restoring: false, retrying: run.id)
             } else if choice == .alertThirdButtonReturn, let original {
                 activateTerminal(original)
             }
@@ -507,23 +535,82 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         guard blocks[i].run?.status == "已退出" else { alert("尚未确认对应运行退出；为防止重复运行，暂不恢复。"); return }
         launch(i, restoring: true)
     }
-    func launch(_ i: Int, restoring: Bool, options: LaunchOptions = .saved) {
+
+    @discardableResult
+    private func saveBlockChange(_ block: Block, at i: Int) -> Bool {
+        do {
+            try store.save(block)
+            blocks[i] = block
+            reload()
+            return true
+        } catch {
+            alert("保存失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func isDirectory(_ path: String) -> Bool {
+        var isDirectory: ObjCBool = false
+        return FileManager.default.fileExists(atPath: path, isDirectory: &isDirectory) && isDirectory.boolValue
+    }
+
+    private func pickLaunchDirectory(_ currentPath: String?) -> String? {
+        let panel = NSOpenPanel()
+        panel.title = "选择启动路径"
+        panel.prompt = "选择"
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        if let path = currentPath {
+            if isDirectory(path) {
+                panel.directoryURL = URL(fileURLWithPath: path, isDirectory: true)
+            } else {
+                panel.message = "原启动路径已不可用，请选择另一个文件夹：\(path)"
+            }
+        }
+        return panel.runModal() == .OK ? panel.url?.path : nil
+    }
+
+    @discardableResult
+    private func saveLaunchDirectory(_ path: String, at i: Int) -> Bool {
+        guard !blocks[i].deleted, blocks[i].association == nil else { return false }
+        var updated = blocks[i]
+        updated.launchDirectory = path
+        return saveBlockChange(updated, at: i)
+    }
+
+    func launch(_ i: Int, restoring: Bool, options: LaunchOptions = .saved, retrying runID: String? = nil) {
+        let cwd: String
+        if restoring {
+            guard let association = blocks[i].association else { return }
+            cwd = association.directory
+        } else {
+            let savedPath = blocks[i].launchDirectory ?? blocks[i].association?.directory
+            if let savedPath, isDirectory(savedPath) {
+                cwd = savedPath
+            } else {
+                guard let path = pickLaunchDirectory(savedPath) else { return }
+                if let runID {
+                    guard canRetry(i, runID: runID) else { return }
+                } else {
+                    guard saveLaunchDirectory(path, at: i) else { return }
+                }
+                cwd = path
+            }
+        }
         let defaults = UserDefaults.standard
         let name = restoring ? blocks[i].association!.agent : options.agent
         let term = options.terminal
         let terminalURL = URL(fileURLWithPath: defaults.string(forKey: term + "App") ?? "/Applications/\(term).app").resolvingSymlinksInPath()
         let path = terminalURL.path
-        guard !blocks.contains(where: { $0.run?.terminal?.path == path && $0.run?.status == "启动中" }) else {
+        guard !terminalLaunchPaths.values.contains(path) else {
             alert("\(term) 正在启动另一个会话。请稍后再试。"); return
         }
-        let cwd = restoring ? blocks[i].association!.directory : (defaults.string(forKey: "directory") ?? FileManager.default.homeDirectoryForCurrentUser.path)
         do {
             guard let bundle = Bundle(url: terminalURL), let identity = bundle.bundleIdentifier, let terminalCLI = bundle.executableURL else {
                 alert("找不到 \(term) 安装包。请在设置中检查路径 \(path)"); return
             }
-            var isDirectory: ObjCBool = false
-            guard FileManager.default.fileExists(atPath: cwd, isDirectory: &isDirectory), isDirectory.boolValue else {
-                alert("工作目录不可用。请在设置中检查目录 \(cwd)"); return
+            guard isDirectory(cwd) else {
+                alert("工作目录不可用：\(cwd)"); return
             }
             let searchPath = agentSearchPath()
             let cli = defaults.string(forKey: name + "Path") ?? defaultAgentPath(name, searchPath: searchPath)
@@ -570,12 +657,20 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             """
             let scriptURL = dir.appendingPathComponent("launch.sh"); try script.write(to: scriptURL, atomically: true, encoding: .utf8)
             var candidate = blocks[i]
-            if !restoring { candidate.association = Association(agent: name, directory: cwd) }
+            if !restoring {
+                if let runID {
+                    guard canRetry(i, runID: runID) else { return }
+                    candidate.clearBinding()
+                }
+                candidate.launchDirectory = cwd
+                candidate.association = Association(agent: name, directory: cwd)
+            }
             candidate.run = run
             try store.save(candidate)
             blocks[i] = candidate
             reload()
 
+            terminalLaunchPaths[run.id] = path
             openTerminal(term, at: terminalURL, identity: identity, executable: terminalCLI, script: scriptURL, cwd: cwd, runID: run.id)
         } catch {
             alert("启动准备失败。\(error.localizedDescription)")
@@ -593,7 +688,9 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
                         try openGhosttyTab(application: application, script: script, cwd: cwd)
                     }
                     DispatchQueue.main.async {
-                        application.activate(options: [.activateIgnoringOtherApps])
+                        if self.blocks.contains(where: { $0.run?.id == runID }) {
+                            self.activateTerminal(application)
+                        }
                         self.confirmLaunch(runID, application: application, deadline: ProcessInfo.processInfo.systemUptime + 10)
                     }
                 } catch {
@@ -663,6 +760,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         }
     }
     func finishLaunch(_ runID: String, status: String, application: NSRunningApplication? = nil) {
+        terminalLaunchPaths.removeValue(forKey: runID)
         guard let i = blocks.firstIndex(where: { $0.run?.id == runID }) else { return }
         if blocks[i].run?.status == "启动中" { blocks[i].run?.status = status }
         if let application {

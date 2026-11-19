@@ -2,14 +2,17 @@
 import AppKit
 
 enum BlockAction: String, CaseIterable {
-    case start, chooseLaunch, copyBody, pin, archive, remove, resume, copyID, toggleRecap
+    case start, chooseLaunch, chooseDirectory, clearBinding, copyBody, pin, archive, remove, resume, copyID, toggleRecap
 
     static let defaults: [Self] = [.start, .copyBody, .pin]
+    static let shortcutOptions = allCases.filter { $0 != .chooseDirectory && $0 != .clearBinding }
 
     var title: String {
         switch self {
         case .start: return "启动 / 返回"
         case .chooseLaunch: return "选择 agent 和终端…"
+        case .chooseDirectory: return "修改启动路径…"
+        case .clearBinding: return "清理绑定"
         case .copyBody: return "复制"
         case .pin: return "置顶"
         case .archive: return "归档"
@@ -24,6 +27,8 @@ enum BlockAction: String, CaseIterable {
         switch self {
         case .start: return "terminal"
         case .chooseLaunch: return "slider.horizontal.3"
+        case .chooseDirectory: return "folder"
+        case .clearBinding: return "link"
         case .copyBody: return "doc.on.doc"
         case .pin: return "pin"
         case .archive: return "archivebox"
@@ -69,7 +74,7 @@ final class ShortcutSettingsView: NSStackView {
         choices.removeAllItems()
         choices.addItem(withTitle: "添加快捷操作…")
         choices.item(at: 0)?.isEnabled = false
-        for action in BlockAction.allCases where !actions.contains(action) {
+        for action in BlockAction.shortcutOptions where !actions.contains(action) {
             choices.addItem(withTitle: action.title)
             choices.lastItem?.representedObject = action.rawValue
         }
