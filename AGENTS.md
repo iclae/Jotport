@@ -13,5 +13,5 @@
 使用单一上下文布局。详见 `docs/agents/domain.md`。
 
 <!-- agent-workflow:start -->
-收到明确需求、已有票据或继续任务请求时，自动读取项目 [project-workflow](.agents/skills/project-workflow/SKILL.md)，按 [.factory/workflow.md](.factory/workflow.md) 推进。无需用户手动调用；不支持 skill 的环境直接读取相同文件。项目包可独立运行，任务和经验保存在项目中。
+收到明确需求、已有票据、继续任务请求，或用户明确要求记住项目约定时，自动读取项目 [project-workflow](.agents/skills/project-workflow/SKILL.md)，按 [.factory/workflow.md](.factory/workflow.md) 推进。无需用户手动调用；不支持 skill 的环境直接读取相同文件。项目包可独立运行，任务和经验保存在项目中。
 <!-- agent-workflow:end -->

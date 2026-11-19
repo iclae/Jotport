@@ -2,15 +2,15 @@
   "schemaVersion": 1,
   "tool": "dream-factory",
   "version": "0.1.0",
-  "packageDigest": "d8a06f6082259a417f4b1ecf59a9d7c3c76cd7f62e148b0c3139d42b6c515109",
+  "packageDigest": "575683e4e87cd174ff7df2c26759a3464b6d047e9139173cf70e47ba09196346",
   "managed": [
     {
       "path": ".agents/skills/project-workflow/SKILL.md",
-      "digest": "d8f3d4d568390643dd6ccb222317b0d920be3bec9df9d53e32d33b72c8e833c9"
+      "digest": "0fa51b71b34e416fa8e9eabf135e5298e6c4355cafee6c9a6249dfab6bebe9ee"
     },
     {
       "path": ".claude/skills/project-workflow/SKILL.md",
-      "digest": "d8f3d4d568390643dd6ccb222317b0d920be3bec9df9d53e32d33b72c8e833c9"
+      "digest": "0fa51b71b34e416fa8e9eabf135e5298e6c4355cafee6c9a6249dfab6bebe9ee"
     },
     {
       "path": ".agents/skills/project-workflow/package.json",
@@ -22,11 +22,7 @@
     },
     {
       "path": ".agents/skills/project-workflow/references/records.md",
-      "digest": "a04f9f4aaa67348e412af2c360140bed113c99733a8388f09a518aba7796f74f"
-    },
-    {
-      "path": ".factory/workflow.md",
-      "digest": "52a2bbbc028d7df4b0f5e0c56a763d1c2b24cc689507082794e763ddfa2a5171"
+      "digest": "7e05c531c26051064ddb3a539aa3c51549fe6a1789f7bf721fa2b7a36d28d568"
     },
     {
       "path": ".agents/skills/project-workflow/runtime/workspace/files.js",
@@ -53,5 +49,7 @@
       "digest": "d610458ef5fcbeda7b9aab9ee4846c5b20094ef7d2e9a5262d9edd6324749807"
     }
   ],
-  "localFiles": []
+  "localFiles": [
+    ".factory/workflow.md"
+  ]
 }
