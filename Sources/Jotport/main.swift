@@ -3,10 +3,13 @@ import AppKit
 import Darwin
 import JotportCore
 
-final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
+final class App: NSObject, NSApplicationDelegate {
     var window: NSWindow!
-    let search = NSSearchField()
-    let include = NSButton(checkboxWithTitle: "包含归档", target: nil, action: nil)
+    let searchPanel = ScratchpadSearch()
+    var search: NSSearchField { searchPanel.field }
+    var include: NSButton { searchPanel.includeArchived }
+    private var searchReturnID: String?
+    private let windowPin = NSButton()
     let list = BlockListView()
     var blocks: [Block] = []
     var store: Store!
@@ -62,10 +65,11 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     }
     func button(_ title: String, _ action: Selector) -> NSButton { NSButton(title: title, target: self, action: action) }
     func buildUI() {
-        window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 760, height: 620), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = ScratchpadWindow(contentRect: NSRect(x: 160, y: 160, width: 444, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        window.title = "Jotport · 测试版"
-        window.contentMinSize = NSSize(width: 490, height: 240)
+        window.title = "Jotport"
+        window.backgroundColor = ScratchpadStyle.background
+        window.contentMinSize = NSSize(width: 360, height: 280)
         window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.acceptsMouseMovedEvents = true
@@ -83,31 +87,49 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         for (title, action, key) in [("撤销", "undo:", "z"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
             editMenu.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
         }
+        editMenu.addItem(withTitle: "搜索笔记…", action: #selector(openSearch), keyEquivalent: "f").target = self
+        editMenu.addItem(withTitle: "新建笔记", action: #selector(newBlock), keyEquivalent: "n").target = self
         editMenu.addItem(.separator())
         editMenu.addItem(withTitle: "撤销删除块", action: #selector(undoDelete), keyEquivalent: "").target = self
         editItem.submenu = editMenu
         menu.addItem(editItem)
         NSApp.mainMenu = menu
 
-        search.placeholderString = "搜索正文、概况、会话 ID"
-        search.delegate = self
-        search.target = self
-        search.action = #selector(refresh)
-        search.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        search.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
-        include.target = self
-        include.action = #selector(refresh)
-        let windowPin = NSButton(checkboxWithTitle: "窗口置顶", target: self, action: #selector(floatWindow(_:)))
+        (window as? ScratchpadWindow)?.closeSearch = { [weak self] in self?.searchPanel.close() ?? false }
+        searchPanel.changed = { [weak self] in self?.refresh() }
+        searchPanel.closed = { [weak self] in
+            guard let self else { return }
+            if let id = self.searchReturnID, self.list.focusBody(of: id) { return }
+            self.list.focusFirstBody()
+        }
+        let searchButton = iconButton("magnifyingglass", label: "搜索笔记（⌘F）", action: #selector(openSearch))
+        configureIcon(windowPin, symbol: "pin", label: "窗口置顶", action: #selector(floatWindow(_:)))
+        windowPin.setButtonType(.toggle)
         windowPin.state = .off
-        let top = NSStackView(views: [button("＋ 新建", #selector(newBlock)), search, include, windowPin, button("设置", #selector(settings))])
-        top.spacing = 12
+        let options = iconButton("ellipsis", label: "选项与设置", action: #selector(showOptions(_:)))
+        let add = iconButton("plus", label: "新建笔记（⌘N）", action: #selector(newBlock))
+        add.contentTintColor = ScratchpadStyle.action
+        let spacer = NSView()
+        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        let tools = NSStackView(views: [searchButton, windowPin, spacer, options, add])
+        tools.spacing = 6
+        let top = NSStackView(views: [tools, searchPanel.view])
+        top.orientation = .vertical
+        top.alignment = .leading
+        top.spacing = 10
+        tools.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
+        searchPanel.view.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
 
         let scroll = NSScrollView()
+        scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.autohidesScrollers = true
         scroll.documentView = list
         let divider = NSBox()
-        divider.boxType = .separator
+        divider.boxType = .custom
+        divider.borderWidth = 0
+        divider.fillColor = ScratchpadStyle.divider
+        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
         let content = window.contentView!
         copyFeedback.material = .popover
         copyFeedback.blendingMode = .withinWindow
@@ -125,10 +147,10 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         list.translatesAutoresizingMaskIntoConstraints = false
         let clip = scroll.contentView
         NSLayoutConstraint.activate([
-            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
             top.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
             top.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            divider.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 10),
+            divider.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 6),
             divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.topAnchor.constraint(equalTo: divider.bottomAnchor),
@@ -181,7 +203,39 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         reload()
     }
 
-    func controlTextDidChange(_ obj: Notification) { refresh() }
+    private func configureIcon(_ button: NSButton, symbol: String, label: String, action: Selector) {
+        button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        button.imagePosition = .imageOnly
+        button.isBordered = false
+        button.contentTintColor = ScratchpadStyle.secondary
+        button.toolTip = label
+        button.setAccessibilityLabel(label)
+        button.target = self
+        button.action = action
+        button.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+    }
+    private func iconButton(_ symbol: String, label: String, action: Selector) -> NSButton {
+        let button = NSButton()
+        configureIcon(button, symbol: symbol, label: label, action: action)
+        return button
+    }
+    @objc func openSearch() {
+        if !searchPanel.isOpen { searchReturnID = editingID }
+        searchPanel.open(in: window)
+    }
+    @objc private func showOptions(_ sender: NSButton) {
+        let menu = NSMenu()
+        for (title, action) in [("搜索笔记…", #selector(openSearch)), ("包含归档…", #selector(showArchive)), ("撤销删除块", #selector(undoDelete)), ("设置…", #selector(settings))] {
+            menu.addItem(withTitle: title, action: action, keyEquivalent: "").target = self
+        }
+        menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.minY), in: sender)
+    }
+    @objc private func showArchive() {
+        openSearch()
+        include.state = .on
+        refresh()
+    }
 
     private func setEditing(_ id: String, active: Bool) {
         if active {
@@ -201,6 +255,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     }
 
     @objc func newBlock() {
+        searchPanel.close()
         var block = Block()
         block.order = (blocks.map(\.order).min() ?? 0) - 1
         blocks.append(block)
@@ -461,6 +516,37 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     }
 
     private func pickLaunchDirectory(_ request: SessionLaunch.DirectoryPrompt) -> String? {
+        let paths = RecentLaunchDirectories().paths
+        if !paths.isEmpty {
+            let choice = NSAlert()
+            choice.messageText = "选择启动路径"
+            if case let .unavailable(path) = request {
+                choice.informativeText = "原启动路径已不可用：\(path)\n选择最近使用的目录，或选择其他目录。"
+            } else {
+                choice.informativeText = "最近使用的目录"
+            }
+            let recent = NSPopUpButton(frame: NSRect(x: 0, y: 0, width: 460, height: 28))
+            recent.setAccessibilityLabel("最近使用的启动目录")
+            for path in paths {
+                let url = URL(fileURLWithPath: path, isDirectory: true)
+                recent.addItem(withTitle: "\(url.lastPathComponent.isEmpty ? "/" : url.lastPathComponent) — \(url.deletingLastPathComponent().path)")
+                recent.lastItem?.toolTip = path
+            }
+            choice.accessoryView = recent
+            choice.addButton(withTitle: "使用所选目录")
+            choice.addButton(withTitle: "选择其他目录…")
+            choice.addButton(withTitle: "取消").keyEquivalent = "\u{1b}"
+            switch choice.runModal() {
+            case .alertFirstButtonReturn:
+                let path = paths[recent.indexOfSelectedItem]
+                if RecentLaunchDirectories.isAvailable(path) { return path }
+                alert("所选目录已不可用，请选择其他目录。")
+            case .alertSecondButtonReturn:
+                break
+            default:
+                return nil
+            }
+        }
         let panel = NSOpenPanel()
         panel.title = "选择启动路径"
         panel.prompt = "选择"

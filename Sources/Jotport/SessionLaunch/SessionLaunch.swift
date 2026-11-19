@@ -40,6 +40,7 @@ final class SessionLaunch {
     }
 
     private let preparation: LaunchPreparation
+    private let recentDirectories: RecentLaunchDirectories
     private let store: Store
     private let blockForID: (String) -> Block?
     private let publish: (Block) -> Void
@@ -51,6 +52,7 @@ final class SessionLaunch {
          prompts: Prompts, preferences: UserDefaults = .standard, terminals: TerminalAccess = .system) {
         preparation = LaunchPreparation(root: root, preferences: preferences)
         self.store = store
+        recentDirectories = RecentLaunchDirectories(preferences: preferences)
         self.blockForID = blockForID
         self.publish = publish
         self.prompts = prompts
@@ -143,10 +145,15 @@ final class SessionLaunch {
 
     private func saveDirectory(_ path: String, for blockID: String) -> Bool {
         guard var block = blockForID(blockID), !block.deleted, block.association == nil else { return false }
+        guard RecentLaunchDirectories.isAvailable(path) else {
+            prompts.alert("该目录已不可用，请重新选择启动路径。")
+            return false
+        }
         block.launchDirectory = path
         do {
             try store.save(block)
             publish(block)
+            recentDirectories.record(path)
             return true
         } catch {
             prompts.alert("保存失败：\(error.localizedDescription)")
@@ -191,6 +198,7 @@ final class SessionLaunch {
             }
             candidate.run = prepared.run
             try store.save(candidate)
+            recentDirectories.record(cwd)
 
             let runID = prepared.run.id
             pending[runID] = PendingLaunch(blockID: candidate.id, terminalPath: terminalPath)
