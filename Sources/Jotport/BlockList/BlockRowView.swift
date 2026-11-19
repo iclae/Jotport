@@ -13,6 +13,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
     private let recap = BlockTextView(fontSize: 13)
     private let recapRow = NSView()
     private let status = NSImageView()
+    private let attention = NSButton(title: "待查看 →", target: nil, action: nil)
     private let dragHandle: BlockDragHandle
     private let more = NSButton()
     private let hideRecap = NSButton()
@@ -38,14 +39,14 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         editor.setAccessibilityLabel("块正文")
         editor.string = block.body
         recap.isEditable = false
-        recap.textColor = .secondaryLabelColor
+        recap.textColor = ScratchpadStyle.secondary
         recap.toolTip = "最近回复摘录，可能过期"
         recap.setAccessibilityLabel("最近回复摘录")
         status.setAccessibilityElement(true)
         status.isHidden = true
         status.imageScaling = .scaleProportionallyDown
         marker.font = .systemFont(ofSize: 11, weight: .medium)
-        marker.textColor = .secondaryLabelColor
+        marker.textColor = ScratchpadStyle.secondary
         marker.isHidden = true
 
         more.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "块操作")
@@ -64,12 +65,24 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         hideRecap.setAccessibilityLabel("隐藏最近回复")
         hideRecap.isHidden = true
 
-        let content = NSStackView(views: [marker, editor, recapRow])
+        attention.bezelStyle = .inline
+        attention.font = .systemFont(ofSize: 12, weight: .medium)
+        attention.contentTintColor = ScratchpadStyle.action
+        attention.target = self
+        attention.action = #selector(viewResult)
+        attention.toolTip = "返回会话查看结果"
+        attention.setAccessibilityLabel("结果待查看，返回会话")
+        attention.isHidden = true
+        editor.blockMenu = { [weak self] in self?.makeMenu() }
+        let content = NSStackView(views: [marker, editor, recapRow, attention])
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 3
         let divider = NSBox()
-        divider.boxType = .separator
+        divider.boxType = .custom
+        divider.borderWidth = 0
+        divider.fillColor = ScratchpadStyle.divider
+        divider.heightAnchor.constraint(equalToConstant: 1).isActive = true
 
         shortcutBar.material = .popover
         shortcutBar.blendingMode = .withinWindow
@@ -90,10 +103,10 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         }
 
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 54),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -42),
-            content.topAnchor.constraint(equalTo: topAnchor, constant: 9),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -8),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 30),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -34),
+            content.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
             editor.widthAnchor.constraint(equalTo: content.widthAnchor),
             recapRow.widthAnchor.constraint(equalTo: content.widthAnchor),
             recap.leadingAnchor.constraint(equalTo: recapRow.leadingAnchor),
@@ -107,8 +120,8 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             dragHandle.topAnchor.constraint(equalTo: topAnchor, constant: 9),
             dragHandle.widthAnchor.constraint(equalToConstant: 25),
             dragHandle.heightAnchor.constraint(equalToConstant: 26),
-            status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 31),
-            status.topAnchor.constraint(equalTo: topAnchor, constant: 14),
+            status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            status.topAnchor.constraint(equalTo: topAnchor, constant: 42),
             status.widthAnchor.constraint(equalToConstant: 17),
             status.heightAnchor.constraint(equalToConstant: 17),
             more.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
@@ -144,6 +157,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         marker.isHidden = blockMarkers.isEmpty
 
         let sessionStatus = block.association?.sessionID?.isEmpty == false ? block.run?.status : nil
+        attention.isHidden = sessionStatus != "结果待查看"
         if statusText != sessionStatus {
             statusText = sessionStatus
             updateStatus()
@@ -172,8 +186,11 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         showControls()
     }
 
-    func textDidBeginEditing(_ notification: Notification) { editingChanged?(true) }
-    func textDidEndEditing(_ notification: Notification) { editingChanged?(false) }
+    func textDidBeginEditing(_ notification: Notification) { editingChanged?(true); showControls() }
+    func textDidEndEditing(_ notification: Notification) {
+        editingChanged?(false)
+        DispatchQueue.main.async { [weak self] in self?.showControls() }
+    }
 
     func textDidChange(_ notification: Notification) {
         bodyChanged?(editor.string)
@@ -209,7 +226,8 @@ final class BlockRowView: NSView, NSTextViewDelegate {
     }
 
     private func showControls() {
-        more.isHidden = !hovered || dragging
+        let focused = (window?.firstResponder as? NSView)?.isDescendant(of: self) == true
+        more.isHidden = (!hovered && !focused) || dragging
         dragHandle.isHidden = !hovered || !canDrag || dragging
         shortcutBar.isHidden = more.isHidden || !shortcutsExpanded || shortcutActions.isEmpty
         if dragging || !hovered || recapRow.isHidden { hideRecap.isHidden = true }
@@ -271,6 +289,8 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         performAction?(action)
     }
 
+    @objc private func viewResult() { performAction?(.start) }
+
     @objc private func toggleRecap() { performAction?(.toggleRecap) }
 
     private func updateStatus() {
@@ -309,6 +329,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
 private final class BlockTextView: NSTextView {
     private var height: CGFloat = 30
     private let placeholder: String?
+    var blockMenu: (() -> NSMenu?)?
     private let storage: NSTextStorage
 
     init(fontSize: CGFloat, placeholder: String? = nil) {
@@ -321,7 +342,7 @@ private final class BlockTextView: NSTextView {
         self.placeholder = placeholder
         super.init(frame: .zero, textContainer: container)
         font = .systemFont(ofSize: fontSize)
-        textColor = .labelColor
+        textColor = ScratchpadStyle.foreground
         isRichText = false
         drawsBackground = false
         textContainerInset = NSSize(width: 0, height: 3)
@@ -333,6 +354,17 @@ private final class BlockTextView: NSTextView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func menu(for event: NSEvent) -> NSMenu? {
+        let menu = super.menu(for: event) ?? NSMenu()
+        if let actions = blockMenu?() {
+            menu.addItem(.separator())
+            let item = NSMenuItem(title: "块操作", action: nil, keyEquivalent: "")
+            item.submenu = actions
+            menu.addItem(item)
+        }
+        return menu
+    }
 
     override var intrinsicContentSize: NSSize { NSSize(width: NSView.noIntrinsicMetric, height: height) }
 

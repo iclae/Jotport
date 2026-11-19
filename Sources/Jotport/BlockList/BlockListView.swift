@@ -87,6 +87,10 @@ final class BlockListView: NSView {
         }
     }
 
+    func focusFirstBody() {
+        if let id = visibleIDs.first { focusBody(of: id) }
+    }
+
     func focusBody(of id: String) {
         layoutSubtreeIfNeeded()
         guard let row = rows[id] else { return }
