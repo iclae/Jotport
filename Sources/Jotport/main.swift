@@ -32,10 +32,17 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         if blocks.isEmpty { newBlock() }
         window.makeKeyAndOrderFront(nil); NSApp.activate(ignoringOtherApps: true)
     }
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows: Bool) -> Bool {
+        guard !hasVisibleWindows, let window else { return true }
+        window.makeKeyAndOrderFront(nil)
+        return false
+    }
     func button(_ title: String, _ action: Selector) -> NSButton { NSButton(title: title, target: self, action: action) }
     func buildUI() {
         window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 980, height: 680), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-        window.title = "Jotport · 测试版"; window.level = .floating
+        window.isReleasedWhenClosed = false
+        window.title = "Jotport · 测试版"
+        window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         let menu = NSMenu(), item = NSMenuItem(), appMenu = NSMenu()
         appMenu.addItem(withTitle: "退出 Jotport", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); item.submenu = appMenu; menu.addItem(item)
@@ -47,7 +54,9 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         agent.addItems(withTitles: ["codex", "pi"]); terminal.addItems(withTitles: ["WezTerm", "Ghostty"])
         agent.selectItem(withTitle: UserDefaults.standard.string(forKey: "agent") ?? "codex")
         terminal.selectItem(withTitle: UserDefaults.standard.string(forKey: "terminal") ?? "WezTerm")
-        let top = NSStackView(views: [button("＋ 新建", #selector(newBlock)), search, include, button("窗口置顶", #selector(floatWindow)), button("设置", #selector(settings))])
+        let windowPin = NSButton(checkboxWithTitle: "窗口置顶", target: self, action: #selector(floatWindow(_:)))
+        windowPin.state = .off
+        let top = NSStackView(views: [button("＋ 新建", #selector(newBlock)), search, include, windowPin, button("设置", #selector(settings))])
         top.orientation = .horizontal
         let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("block")); column.width = 260
         table.addTableColumn(column); table.headerView = nil; table.rowHeight = 62; table.delegate = self; table.dataSource = self
@@ -101,7 +110,9 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     @objc func archive() { if let i = index { blocks[i].archived.toggle(); save(i); reload() } }
     @objc func remove() { if let i = index { blocks[i].deleted = true; blocks[i].updated = Date(); save(i); selected = nil; editor.string = ""; reload() } }
     @objc func undoDelete() { if let b = blocks.filter({ $0.deleted }).max(by: { $0.updated < $1.updated }), let i = blocks.firstIndex(where: { $0.id == b.id }) { blocks[i].deleted = false; save(i); reload() } }
-    @objc func floatWindow() { window.level = window.level == .floating ? .normal : .floating }
+    @objc func floatWindow(_ sender: NSButton) {
+        window.level = sender.state == .on ? .floating : .normal
+    }
     func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? { let item = NSPasteboardItem(); item.setString(rows[row], forType: .string); return item }
     func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation { tableView.setDropRow(row, dropOperation: .above); return .move }
     func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {

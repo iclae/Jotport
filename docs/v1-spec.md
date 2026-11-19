@@ -43,7 +43,7 @@
 
 ## 窗口和关注排序
 
-窗口提供置顶开关，默认启用。切换到终端后笔记窗口可继续可见；收到状态事件时不抢占键盘焦点。普通桌面、多桌面和全屏场景分别验证。AppKit 的窗口层级与 Spaces 行为可作为实现依据：[窗口层级](https://developer.apple.com/documentation/appkit/nswindow/level-swift.property)、[窗口空间行为](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct)。
+每次启动时，「窗口置顶」复选框均未勾选。勾选后开启置顶，切换到终端时笔记窗口可继续可见。取消勾选后恢复普通窗口层级。收到状态事件时不抢占键盘焦点。普通桌面、多桌面和全屏场景分别验证。实现依据见 [AppKit 窗口层级](https://developer.apple.com/documentation/appkit/nswindow/level-swift.property)和[窗口空间行为](https://developer.apple.com/documentation/appkit/nswindow/collectionbehavior-swift.struct)。
 
 以下为首版交互默认值：
 
