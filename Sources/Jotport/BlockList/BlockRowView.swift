@@ -34,6 +34,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         id = block.id
         self.dragHandle = dragHandle
         super.init(frame: .zero)
+        editor.focusChanged = { [weak self] in self?.showControls() }
         editor.delegate = self
         editor.allowsUndo = true
         editor.setAccessibilityLabel("块正文")
@@ -331,6 +332,7 @@ private final class BlockTextView: NSTextView {
     private var height: CGFloat = 30
     private let placeholder: String?
     var blockMenu: (() -> NSMenu?)?
+    var focusChanged: (() -> Void)?
     private let storage: NSTextStorage
 
     init(fontSize: CGFloat, placeholder: String? = nil) {
@@ -355,6 +357,17 @@ private final class BlockTextView: NSTextView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func becomeFirstResponder() -> Bool {
+        let result = super.becomeFirstResponder()
+        DispatchQueue.main.async { [weak self] in self?.focusChanged?() }
+        return result
+    }
+    override func resignFirstResponder() -> Bool {
+        let result = super.resignFirstResponder()
+        DispatchQueue.main.async { [weak self] in self?.focusChanged?() }
+        return result
+    }
 
     override func menu(for event: NSEvent) -> NSMenu? {
         let menu = super.menu(for: event) ?? NSMenu()
