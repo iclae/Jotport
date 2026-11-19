@@ -16,6 +16,7 @@ final class BlockListView: NSView {
         }
     }
 
+    var firstRowInset: CGFloat = 16
     var bodyChanged: ((String, String) -> Void)?
     var editingChanged: ((String, Bool) -> Void)?
     var performAction: ((String, BlockAction) -> Void)?
@@ -82,7 +83,8 @@ final class BlockListView: NSView {
             visibleIDs = ids
         }
 
-        for block in blocks {
+        for (index, block) in blocks.enumerated() {
+            rows[block.id]?.configureSpacing(top: index == 0 ? firstRowInset : 6, last: index == blocks.count - 1)
             rows[block.id]?.update(block, actions: actions(block), shortcuts: shortcuts, canDrag: canDrag, dragging: dragging)
         }
     }

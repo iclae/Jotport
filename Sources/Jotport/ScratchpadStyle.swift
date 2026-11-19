@@ -18,9 +18,64 @@ enum ScratchpadStyle {
 
 final class ScratchpadWindow: NSWindow {
     var closeSearch: (() -> Bool)?
+    var searchIsOpen: (() -> Bool)?
+    private(set) var routingCompositionEscape = false
+    override func sendEvent(_ event: NSEvent) {
+        if event.type == .keyDown, event.keyCode == 53, searchIsOpen?() == true {
+            if let text = firstResponder as? NSTextView, text.hasMarkedText() {
+                routingCompositionEscape = true
+                defer { routingCompositionEscape = false }
+                super.sendEvent(event)
+                return
+            }
+            if closeSearch?() == true { return }
+        }
+        super.sendEvent(event)
+    }
     override func cancelOperation(_ sender: Any?) {
-        if let text = firstResponder as? NSTextView, text.hasMarkedText() { return }
+        if routingCompositionEscape || (firstResponder as? NSTextView)?.hasMarkedText() == true { return }
         if closeSearch?() != true { super.cancelOperation(sender) }
+    }
+}
+
+final class TitleRail: NSView {
+    override var mouseDownCanMoveWindow: Bool { true }
+    override func layout() {
+        super.layout()
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(kind), let container = button.superview else { continue }
+            let center = container.convert(NSPoint(x: bounds.midX, y: bounds.midY), from: self)
+            button.setFrameOrigin(NSPoint(x: button.frame.minX, y: center.y - button.frame.height / 2))
+        }
+    }
+}
+
+final class WindowPinButton: NSButton {
+    func synchronize(with window: NSWindow) {
+        let pinned = window.level == .floating
+        state = pinned ? .on : .off
+        let label = pinned ? "取消窗口置顶" : "置顶窗口"
+        let symbol = pinned ? "pin.fill" : "pin"
+        image = NSImage(systemSymbolName: symbol, accessibilityDescription: label)
+        identifier = NSUserInterfaceItemIdentifier(symbol)
+        contentTintColor = pinned ? ScratchpadStyle.action : ScratchpadStyle.secondary
+        toolTip = label
+        setAccessibilityLabel(label)
+    }
+    func toggle(window: NSWindow) {
+        window.level = window.level == .floating ? .normal : .floating
+        synchronize(with: window)
+    }
+}
+
+final class SearchSurface: NSView {
+    override func draw(_ dirtyRect: NSRect) {
+        ScratchpadStyle.actionTint.setFill()
+        let path = NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 6, yRadius: 6)
+        path.fill()
+        ScratchpadStyle.action.setStroke()
+        path.lineWidth = 1
+        path.stroke()
     }
 }
 
@@ -40,7 +95,9 @@ final class AttentionButton: NSButton {
 final class ScratchpadSearch: NSObject, NSSearchFieldDelegate {
     let field = NSSearchField()
     let includeArchived = NSButton(checkboxWithTitle: "包含归档", target: nil, action: nil)
-    let view = NSStackView()
+    let view = SearchSurface()
+    let closeButton = NSButton(title: "esc", target: nil, action: nil)
+    var visibilityChanged: ((Bool) -> Void)?
     var changed: (() -> Void)?
     var closed: (() -> Void)?
     var isOpen: Bool { !view.isHidden }
@@ -57,17 +114,46 @@ final class ScratchpadSearch: NSObject, NSSearchFieldDelegate {
         includeArchived.target = self
         includeArchived.action = #selector(update)
         includeArchived.font = .systemFont(ofSize: 11)
-        view.orientation = .vertical
-        view.alignment = .leading
-        view.spacing = 8
-        view.addArrangedSubview(field)
-        view.addArrangedSubview(includeArchived)
-        field.widthAnchor.constraint(equalTo: view.widthAnchor).isActive = true
+        let magnifier = NSImageView(image: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)!)
+        magnifier.contentTintColor = ScratchpadStyle.action
+        magnifier.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(magnifier)
+        (field.cell as? NSSearchFieldCell)?.searchButtonCell = nil
+        (field.cell as? NSSearchFieldCell)?.cancelButtonCell = nil
+        field.focusRingType = .none
+        field.isBordered = false
+        field.drawsBackground = false
+        field.font = .systemFont(ofSize: 14)
+        closeButton.bezelStyle = .smallSquare
+        closeButton.controlSize = .small
+        closeButton.font = .systemFont(ofSize: 11)
+        closeButton.toolTip = "关闭搜索（Esc）"
+        closeButton.setAccessibilityLabel("关闭搜索")
+        closeButton.target = self
+        closeButton.action = #selector(dismiss)
+        for item in [field, closeButton] {
+            item.translatesAutoresizingMaskIntoConstraints = false
+            view.addSubview(item)
+        }
+        NSLayoutConstraint.activate([
+            view.heightAnchor.constraint(equalToConstant: 40),
+            magnifier.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
+            magnifier.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            magnifier.widthAnchor.constraint(equalToConstant: 14),
+            magnifier.heightAnchor.constraint(equalToConstant: 14),
+            field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
+            field.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            field.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
+            closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
+            closeButton.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 34)
+        ])
         view.isHidden = true
     }
 
     func open(in window: NSWindow) {
         view.isHidden = false
+        visibilityChanged?(true)
         window.contentView?.layoutSubtreeIfNeeded()
         window.makeFirstResponder(field)
         field.selectText(nil)
@@ -77,17 +163,21 @@ final class ScratchpadSearch: NSObject, NSSearchFieldDelegate {
         guard isOpen, !composing else { return false }
         field.stringValue = ""
         includeArchived.state = .off
+        field.window?.makeFirstResponder(nil)
         view.isHidden = true
+        visibilityChanged?(false)
         changed?()
         closed?()
         return true
     }
 
+    @objc private func dismiss() { close() }
+
     @objc private func update() { changed?() }
     func controlTextDidChange(_ obj: Notification) { changed?() }
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         guard commandSelector == #selector(NSResponder.cancelOperation(_:)) else { return false }
-        return close(composing: textView.hasMarkedText())
+        return close(composing: textView.hasMarkedText() || (textView.window as? ScratchpadWindow)?.routingCompositionEscape == true)
     }
 }
 #endif
