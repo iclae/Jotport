@@ -226,6 +226,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     func reload() {
+        list.firstRowInset = searchPanel.isOpen ? 6 : 16
         let visible = blocks.filter { Reducer.matches($0, query: search.stringValue, archived: include.state == .on) }
             .sorted { $0.pinned != $1.pinned ? $0.pinned : $0.order < $1.order }
         list.display(visible, shortcuts: shortcuts, canDrag: search.stringValue.isEmpty, actions: availableActions)

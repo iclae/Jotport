@@ -40,6 +40,14 @@ final class ScratchpadWindow: NSWindow {
 
 final class TitleRail: NSView {
     override var mouseDownCanMoveWindow: Bool { true }
+    override func layout() {
+        super.layout()
+        for kind: NSWindow.ButtonType in [.closeButton, .miniaturizeButton, .zoomButton] {
+            guard let button = window?.standardWindowButton(kind), let container = button.superview else { continue }
+            let center = container.convert(NSPoint(x: bounds.midX, y: bounds.midY), from: self)
+            button.setFrameOrigin(NSPoint(x: button.frame.minX, y: center.y - button.frame.height / 2))
+        }
+    }
 }
 
 final class WindowPinButton: NSButton {
@@ -106,11 +114,18 @@ final class ScratchpadSearch: NSObject, NSSearchFieldDelegate {
         includeArchived.target = self
         includeArchived.action = #selector(update)
         includeArchived.font = .systemFont(ofSize: 11)
+        let magnifier = NSImageView(image: NSImage(systemSymbolName: "magnifyingglass", accessibilityDescription: nil)!)
+        magnifier.contentTintColor = ScratchpadStyle.action
+        magnifier.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(magnifier)
+        (field.cell as? NSSearchFieldCell)?.searchButtonCell = nil
+        (field.cell as? NSSearchFieldCell)?.cancelButtonCell = nil
         field.focusRingType = .none
         field.isBordered = false
         field.drawsBackground = false
         field.font = .systemFont(ofSize: 14)
-        closeButton.bezelStyle = .inline
+        closeButton.bezelStyle = .smallSquare
+        closeButton.controlSize = .small
         closeButton.font = .systemFont(ofSize: 11)
         closeButton.toolTip = "关闭搜索（Esc）"
         closeButton.setAccessibilityLabel("关闭搜索")
@@ -122,7 +137,11 @@ final class ScratchpadSearch: NSObject, NSSearchFieldDelegate {
         }
         NSLayoutConstraint.activate([
             view.heightAnchor.constraint(equalToConstant: 40),
-            field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
+            magnifier.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 10),
+            magnifier.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            magnifier.widthAnchor.constraint(equalToConstant: 14),
+            magnifier.heightAnchor.constraint(equalToConstant: 14),
+            field.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 30),
             field.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             field.trailingAnchor.constraint(equalTo: closeButton.leadingAnchor, constant: -6),
             closeButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),

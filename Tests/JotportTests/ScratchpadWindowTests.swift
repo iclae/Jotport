@@ -80,7 +80,7 @@ final class ScratchpadWindowTests: XCTestCase {
         try key(53, characters: "\u{1b}", in: window)
         XCTAssertFalse(app.searchPanel.isOpen)
 
-        app.openSearch(); app.search.stringValue = "窄窗"; app.refresh(); pump()
+        app.openSearch(); app.search.stringValue = "窄窗"; (app.search.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 2, length: 0)); app.refresh(); pump()
         try capture(window, name: "02-search-unpinned")
         try click(app.searchPanel.closeButton, in: window)
         XCTAssertFalse(app.searchPanel.isOpen)
@@ -90,7 +90,7 @@ final class ScratchpadWindowTests: XCTestCase {
         XCTAssertEqual(app.windowPin.toolTip, "取消窗口置顶")
         window.makeFirstResponder(nil); pump()
         try capture(window, name: "03-normal-pinned")
-        app.openSearch(); app.search.stringValue = "窄窗"; app.refresh(); pump()
+        app.openSearch(); app.search.stringValue = "窄窗"; (app.search.currentEditor() as? NSTextView)?.setSelectedRange(NSRange(location: 2, length: 0)); app.refresh(); pump()
         try capture(window, name: "04-search-pinned")
         app.searchPanel.close()
         try click(app.windowPin, in: window)

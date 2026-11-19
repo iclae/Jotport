@@ -21,6 +21,8 @@ final class BlockRowView: NSView, NSTextViewDelegate {
     private let shortcutBar = NSVisualEffectView()
     private let shortcutStack = NSStackView()
     private let shortcutMenus = NSMenu()
+    private let divider = NSBox()
+    private var topSpacing: NSLayoutConstraint!
     private let marker = NSTextField(labelWithString: "")
     private var allActions: [BlockActionItem] = []
     private var shortcutActions: [BlockActionItem] = []
@@ -90,7 +92,6 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         content.orientation = .vertical
         content.alignment = .leading
         content.spacing = 3
-        let divider = NSBox()
         divider.boxType = .custom
         divider.borderWidth = 0
         divider.fillColor = ScratchpadStyle.divider
@@ -114,10 +115,11 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
 
+        topSpacing = content.topAnchor.constraint(equalTo: topAnchor, constant: 16)
         NSLayoutConstraint.activate([
             content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            content.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            topSpacing,
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
             heightAnchor.constraint(greaterThanOrEqualToConstant: 78),
             reviewAction.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
@@ -194,6 +196,11 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         }
         self.canDrag = canDrag
         setDragging(dragging)
+    }
+
+    func configureSpacing(top: CGFloat, last: Bool) {
+        topSpacing.constant = top
+        divider.isHidden = last
     }
 
     func focusBody() { window?.makeFirstResponder(editor) }
