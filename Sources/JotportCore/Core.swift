@@ -64,63 +64,7 @@ public struct Block: Codable, Equatable, Identifiable {
         seenEvents.removeAll()
     }
 }
-public struct BridgeEvent: Codable {
-    public var schemaVersion: Int
-    public var eventID: String
-    public var runID: String
-    public var sessionID: String
-    public var turnID: Int
-    public var sequence: Int
-    public var source: String
-    public var type: String
-    public var time: String
-    public var text: String?
-
-    public init(schemaVersion: Int, eventID: String, runID: String, sessionID: String, turnID: Int,
-                sequence: Int, source: String, type: String, time: String, text: String? = nil) {
-        self.schemaVersion = schemaVersion
-        self.eventID = eventID
-        self.runID = runID
-        self.sessionID = sessionID
-        self.turnID = turnID
-        self.sequence = sequence
-        self.source = source
-        self.type = type
-        self.time = time
-        self.text = text
-    }
-}
 public enum Reducer {
-    @discardableResult public static func apply(_ e: BridgeEvent, to b: inout Block) -> Bool {
-        guard e.schemaVersion == 1, !e.sessionID.isEmpty else { return false }
-        guard var r = b.run, r.id == e.runID else {
-            guard let index = b.history.firstIndex(where: { $0.detachedRunID == e.runID && $0.agent == e.source && $0.sessionID == nil }) else { return false }
-            b.history[index].sessionID = e.sessionID
-            return true
-        }
-        guard e.sequence > r.lastSequence, e.turnID >= r.turn,
-              !b.seenEvents.contains(e.eventID), e.source == b.association?.agent else { return false }
-        guard b.association?.sessionID == nil || b.association?.sessionID == e.sessionID else {
-            r.status = "状态未知：终端会话已切换"; b.run = r; return false
-        }
-        b.association?.sessionID = e.sessionID
-        r.lastSequence = e.sequence; r.turn = e.turnID
-        b.seenEvents.insert(e.eventID)
-        switch e.type {
-        case "bound": r.status = "已打开，待粘贴"
-        case "prefilled": r.status = "待发送"; r.injected = true
-        case "running": r.status = "运行中"
-        case "idle": r.status = "空闲"
-        case "waiting": r.status = "需要输入"; b.attention = e.eventID; b.attentionTime = e.time
-        case "settled":
-            guard e.turnID > 0 else { b.run = r; return true }
-            r.status = "结果待查看"; b.attention = e.eventID; b.attentionTime = e.time
-            if let text = e.text, !text.isEmpty { b.recap = String(text.prefix(4000)); b.recapSource = "\(e.sessionID) · 轮次 \(e.turnID) · \(e.time)" }
-        case "exited": r.status = "已退出"
-        default: r.status = "状态未知"
-        }
-        b.run = r; return true
-    }
     public static func matches(_ b: Block, query: String, archived: Bool) -> Bool {
         guard !b.deleted, archived || !b.archived else { return false }
         let a = ([b.association].compactMap { $0 } + b.history)

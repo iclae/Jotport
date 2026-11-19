@@ -13,6 +13,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     var root: URL!
     var watcher: DispatchSourceFileSystemObject?
     var editingID: String?
+    private var sessionInbox: SessionInbox!
     private var terminalLaunchPaths: [String: String] = [:]
     private let shortcutKey = "blockShortcuts"
     private let copyFeedback = NSVisualEffectView()
@@ -39,15 +40,17 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Jotport")
+        let inboxDirectory = root.appendingPathComponent("inbox")
         do {
-            root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Jotport")
-            try FileManager.default.createDirectory(at: root.appendingPathComponent("inbox"), withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            try FileManager.default.createDirectory(at: inboxDirectory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
             store = try Store(path: root.appendingPathComponent("notes.sqlite").path)
+            sessionInbox = SessionInbox(directory: inboxDirectory, store: store)
             blocks = try store.load()
             for i in blocks.indices where blocks[i].run != nil && blocks[i].run?.status != "已退出" { blocks[i].run?.status = "状态未知：需核对终端"; try store.save(blocks[i]) }
         } catch { fatalError("无法打开本地数据库：\(error)") }
         buildUI(); reload()
-        let fd = open(root.appendingPathComponent("inbox").path, O_EVTONLY)
+        let fd = open(inboxDirectory.path, O_EVTONLY)
         if fd >= 0 {
             watcher = DispatchSource.makeFileSystemObjectSource(fileDescriptor: fd, eventMask: .write, queue: .main)
             watcher?.setEventHandler { [weak self] in self?.consume() }
@@ -345,28 +348,9 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     }
 
     func consume() {
-        guard let urls = try? FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("inbox"), includingPropertiesForKeys: nil) else { return }
-        let events = urls.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, BridgeEvent)? in guard let d = try? Data(contentsOf: url), d.count < 100_000, let e = try? JSONDecoder().decode(BridgeEvent.self, from: d) else { return nil }; return (url, e) }.sorted { $0.1.sequence < $1.1.sequence }
-        for (url, event) in events {
-            let current = blocks.firstIndex(where: { $0.run?.id == event.runID })
-            let historical = current == nil ? blocks.firstIndex(where: { block in
-                block.history.contains { $0.detachedRunID == event.runID }
-            }) : nil
-            guard let i = current ?? historical else { continue }
-            var updated = blocks[i]
-            if Reducer.apply(event, to: &updated) {
-                do {
-                    try store.save(updated)
-                    blocks[i] = updated
-                    try? FileManager.default.removeItem(at: url)
-                } catch { alert("事件保存失败：\(error)") }
-            } else if historical != nil {
-                try? FileManager.default.removeItem(at: url)
-            } else {
-                blocks[i] = updated
-            }
-        }
+        let error = sessionInbox.consume(into: &blocks)
         refresh()
+        if let error { alert("事件保存失败：\(error.localizedDescription)") }
     }
     func promote() {
         guard editingID == nil, !list.dragging, search.stringValue.isEmpty,
