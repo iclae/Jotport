@@ -48,11 +48,11 @@ final class BlockListView: NSView {
         addSubview(dropLine)
         dropLinePosition = dropLine.topAnchor.constraint(equalTo: topAnchor)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            stack.leadingAnchor.constraint(equalTo: leadingAnchor),
             stack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             stack.topAnchor.constraint(equalTo: topAnchor),
             stack.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor),
-            dropLine.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
+            dropLine.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             dropLine.trailingAnchor.constraint(equalTo: stack.trailingAnchor),
             dropLine.heightAnchor.constraint(equalToConstant: 2),
             dropLinePosition

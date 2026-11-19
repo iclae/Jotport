@@ -20,6 +20,38 @@ final class ScratchpadWindowTests: XCTestCase {
         pump()
     }
 
+    func testDragHandleIsFullyVisibleAndHittableOnHover() throws {
+        _ = NSApplication.shared
+        let app = App()
+        var block = Block()
+        block.body = "拖动笔记"
+        app.blocks = [block]
+        app.buildUI()
+        app.reload()
+        let window = try XCTUnwrap(app.window)
+        defer { window.orderOut(nil) }
+        let content = try XCTUnwrap(window.contentView)
+        let stack = try XCTUnwrap(app.list.subviews.compactMap { $0 as? NSStackView }.first)
+        let row = try XCTUnwrap(stack.arrangedSubviews.first as? BlockRowView)
+        let handle = try XCTUnwrap(row.subviews.compactMap { $0 as? BlockDragHandle }.first)
+
+        for width in [window.frame.width, window.contentMinSize.width] {
+            window.setContentSize(NSSize(width: width, height: content.bounds.height))
+            content.layoutSubtreeIfNeeded()
+            let point = row.convert(NSPoint(x: row.bounds.midX, y: row.bounds.midY), to: nil)
+            let hover = try XCTUnwrap(NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: 0, windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0))
+            row.mouseMoved(with: hover)
+
+            XCTAssertFalse(handle.isHidden)
+            XCTAssertEqual(handle.visibleRect, handle.bounds)
+            for x in [handle.bounds.minX + 1, handle.bounds.maxX - 1] {
+                let gripPoint = NSPoint(x: x, y: handle.bounds.midY)
+                let windowPoint = handle.convert(gripPoint, to: content.superview)
+                XCTAssertTrue(content.hitTest(windowPoint) === handle)
+            }
+        }
+    }
+
     func testRealWindowSearchRoutingPinAndPopulatedCaptures() throws {
         _ = NSApplication.shared
         NSApp.setActivationPolicy(.regular)

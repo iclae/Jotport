@@ -117,7 +117,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
 
         topSpacing = content.topAnchor.constraint(equalTo: topAnchor, constant: 16)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 22),
             content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             topSpacing,
             content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
@@ -135,7 +135,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             hideRecap.widthAnchor.constraint(greaterThanOrEqualToConstant: 42),
             hideRecap.topAnchor.constraint(equalTo: recapRow.topAnchor, constant: 4),
             hideRecap.trailingAnchor.constraint(equalTo: recapRow.trailingAnchor),
-            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -12),
+            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor),
             dragHandle.topAnchor.constraint(equalTo: topAnchor, constant: 9),
             dragHandle.widthAnchor.constraint(equalToConstant: 18),
             dragHandle.heightAnchor.constraint(equalToConstant: 26),
@@ -153,8 +153,8 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             shortcutStack.leadingAnchor.constraint(equalTo: shortcutBar.leadingAnchor, constant: 5),
             shortcutStack.trailingAnchor.constraint(equalTo: shortcutBar.trailingAnchor, constant: -5),
             shortcutStack.centerYAnchor.constraint(equalTo: shortcutBar.centerYAnchor),
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             divider.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
@@ -262,7 +262,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         let textWidth = shortcutActions.reduce(CGFloat(10)) { width, item in
             width + (item.title as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)]).width + 21
         }
-        let compact = textWidth > bounds.width - 90
+        let compact = textWidth > bounds.width - 102
         guard compactShortcuts != compact else { return }
         compactShortcuts = compact
         for view in shortcutStack.arrangedSubviews { view.removeFromSuperview() }
