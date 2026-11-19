@@ -39,6 +39,7 @@ public struct Block: Codable, Equatable, Identifiable {
     public var run: Run?
     public var recap = ""
     public var recapSource = ""
+    public var recapHidden: Bool?
     public var attention: String?
     public var attentionPromoted: String?
     public var attentionTime: String?
@@ -109,6 +110,17 @@ public final class Store {
         _ = data.withUnsafeBytes { sqlite3_bind_blob(statement, 2, $0.baseAddress, Int32(data.count), transient) }
         guard sqlite3_step(statement) == SQLITE_DONE else { throw failure() }
     }
+    public func save(_ blocks: [Block]) throws {
+        try execute("BEGIN IMMEDIATE")
+        do {
+            for block in blocks { try save(block) }
+            try execute("COMMIT")
+        } catch {
+            try? execute("ROLLBACK")
+            throw error
+        }
+    }
+
     public func load() throws -> [Block] {
         var s: OpaquePointer?
         guard sqlite3_prepare_v2(db, "SELECT payload FROM blocks", -1, &s, nil) == SQLITE_OK else { throw failure() }

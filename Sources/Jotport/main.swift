@@ -3,17 +3,37 @@ import AppKit
 import Carbon
 import JotportCore
 
-final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTableViewDelegate, NSTextViewDelegate, NSSearchFieldDelegate {
+final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     var window: NSWindow!
-    let table = NSTableView(), editor = NSTextView(), search = NSSearchField()
-    let status = NSTextField(wrappingLabelWithString: ""), recap = NSTextField(wrappingLabelWithString: "")
+    let search = NSSearchField()
     let include = NSButton(checkboxWithTitle: "包含归档", target: nil, action: nil)
-    let agent = NSPopUpButton(), terminal = NSPopUpButton()
-    var blocks: [Block] = [], rows: [String] = [], selected: String?
+    let list = BlockListView()
+    var blocks: [Block] = []
     var store: Store!
     var root: URL!
     var watcher: DispatchSourceFileSystemObject?
-    var editing = false
+    var editingID: String?
+    private let shortcutKey = "blockShortcuts"
+
+    struct LaunchOptions {
+        static let agents = ["codex", "pi"]
+        static let terminals = ["WezTerm", "Ghostty"]
+
+        var agent: String
+        var terminal: String
+
+        static var saved: Self {
+            let defaults = UserDefaults.standard
+            return Self(agent: defaults.string(forKey: "agent") ?? "codex",
+                        terminal: defaults.string(forKey: "terminal") ?? "WezTerm")
+        }
+    }
+
+    private var shortcuts: [BlockAction] {
+        guard let stored = UserDefaults.standard.stringArray(forKey: shortcutKey) else { return BlockAction.defaults }
+        return stored.compactMap(BlockAction.init(rawValue:))
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
             root = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Jotport")
@@ -39,88 +59,244 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     }
     func button(_ title: String, _ action: Selector) -> NSButton { NSButton(title: title, target: self, action: action) }
     func buildUI() {
-        window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 980, height: 680), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 760, height: 620), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "Jotport · 测试版"
+        window.contentMinSize = NSSize(width: 490, height: 240)
         window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        window.acceptsMouseMovedEvents = true
         let menu = NSMenu(), item = NSMenuItem(), appMenu = NSMenu()
-        appMenu.addItem(withTitle: "退出 Jotport", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"); item.submenu = appMenu; menu.addItem(item)
-        let editItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: ""), editMenu = NSMenu()
-        for (title, action, key) in [("撤销", "undo:", "z"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] { editMenu.addItem(withTitle: title, action: Selector(action), keyEquivalent: key) }
-        editItem.submenu = editMenu; menu.addItem(editItem); NSApp.mainMenu = menu
-        search.placeholderString = "搜索正文、概况、会话 ID"; search.delegate = self
-        include.target = self; include.action = #selector(refresh)
-        agent.addItems(withTitles: ["codex", "pi"]); terminal.addItems(withTitles: ["WezTerm", "Ghostty"])
-        agent.selectItem(withTitle: UserDefaults.standard.string(forKey: "agent") ?? "codex")
-        terminal.selectItem(withTitle: UserDefaults.standard.string(forKey: "terminal") ?? "WezTerm")
+        let settingsItem = appMenu.addItem(withTitle: "设置…", action: #selector(settings), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "退出 Jotport", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        item.submenu = appMenu
+        menu.addItem(item)
+        let editItem = NSMenuItem(title: "编辑", action: nil, keyEquivalent: "")
+        let editMenu = NSMenu(title: "编辑")
+        for (title, action, key) in [("撤销", "undo:", "z"), ("复制", "copy:", "c"), ("粘贴", "paste:", "v"), ("全选", "selectAll:", "a")] {
+            editMenu.addItem(withTitle: title, action: Selector(action), keyEquivalent: key)
+        }
+        editMenu.addItem(.separator())
+        editMenu.addItem(withTitle: "撤销删除块", action: #selector(undoDelete), keyEquivalent: "").target = self
+        editItem.submenu = editMenu
+        menu.addItem(editItem)
+        NSApp.mainMenu = menu
+
+        search.placeholderString = "搜索正文、概况、会话 ID"
+        search.delegate = self
+        search.target = self
+        search.action = #selector(refresh)
+        search.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        search.widthAnchor.constraint(greaterThanOrEqualToConstant: 140).isActive = true
+        include.target = self
+        include.action = #selector(refresh)
         let windowPin = NSButton(checkboxWithTitle: "窗口置顶", target: self, action: #selector(floatWindow(_:)))
         windowPin.state = .off
         let top = NSStackView(views: [button("＋ 新建", #selector(newBlock)), search, include, windowPin, button("设置", #selector(settings))])
-        top.orientation = .horizontal
-        let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("block")); column.width = 260
-        table.addTableColumn(column); table.headerView = nil; table.rowHeight = 62; table.delegate = self; table.dataSource = self
-        table.registerForDraggedTypes([.string]); table.setDraggingSourceOperationMask(.move, forLocal: true)
-        let list = NSScrollView(); list.documentView = table; list.hasVerticalScroller = true; list.widthAnchor.constraint(equalToConstant: 280).isActive = true
-        editor.minSize = NSSize(width: 0, height: 300); editor.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude); editor.isHorizontallyResizable = false; editor.textContainerInset = NSSize(width: 12, height: 12)
-        editor.isRichText = false; editor.font = .systemFont(ofSize: 16); editor.allowsUndo = true; editor.delegate = self
-        editor.isVerticallyResizable = true; editor.autoresizingMask = [.width]; editor.textContainer?.widthTracksTextView = true
-        let textScroll = NSScrollView(); textScroll.documentView = editor; textScroll.hasVerticalScroller = true
-        let actions = NSStackView(views: [button("复制正文", #selector(copyBody)), button("置顶", #selector(pin)), button("归档/恢复", #selector(archive)), button("删除", #selector(remove)), button("撤销删除", #selector(undoDelete))])
-        let launch = NSStackView(views: [terminal, agent, button("启动 / 返回", #selector(start)), button("按原 ID 恢复", #selector(resume)), button("复制会话 ID", #selector(copyID))])
-        let right = NSStackView(views: [actions, textScroll, launch, status, recap]); right.orientation = .vertical; right.alignment = .leading
-        textScroll.widthAnchor.constraint(equalTo: right.widthAnchor).isActive = true
-        textScroll.heightAnchor.constraint(greaterThanOrEqualToConstant: 300).isActive = true
-        let main = NSStackView(views: [list, right]); main.orientation = .horizontal; main.distribution = .fill
-        let all = NSStackView(views: [top, main]); all.orientation = .vertical; all.alignment = .leading; all.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView!.addSubview(all)
-        NSLayoutConstraint.activate([all.leadingAnchor.constraint(equalTo: window.contentView!.leadingAnchor, constant: 12), all.trailingAnchor.constraint(equalTo: window.contentView!.trailingAnchor, constant: -12), all.topAnchor.constraint(equalTo: window.contentView!.topAnchor, constant: 12), all.bottomAnchor.constraint(equalTo: window.contentView!.bottomAnchor, constant: -12), main.widthAnchor.constraint(equalTo: all.widthAnchor), top.widthAnchor.constraint(equalTo: all.widthAnchor), main.heightAnchor.constraint(equalTo: all.heightAnchor, constant: -42)])
+        top.spacing = 12
+
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.autohidesScrollers = true
+        scroll.documentView = list
+        let divider = NSBox()
+        divider.boxType = .separator
+        let content = window.contentView!
+        for view in [top, divider, scroll] {
+            view.translatesAutoresizingMaskIntoConstraints = false
+            content.addSubview(view)
+        }
+        list.translatesAutoresizingMaskIntoConstraints = false
+        let clip = scroll.contentView
+        NSLayoutConstraint.activate([
+            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 12),
+            top.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
+            top.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
+            divider.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 10),
+            divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scroll.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            list.topAnchor.constraint(equalTo: clip.topAnchor),
+            list.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
+            list.widthAnchor.constraint(equalTo: clip.widthAnchor),
+            list.heightAnchor.constraint(greaterThanOrEqualTo: clip.heightAnchor)
+        ])
+        let compactHeight = list.heightAnchor.constraint(equalTo: clip.heightAnchor)
+        compactHeight.priority = .defaultLow - 1
+        compactHeight.isActive = true
+        list.bodyChanged = { [weak self] in self?.updateBody($0, body: $1) }
+        list.editingChanged = { [weak self] in self?.setEditing($0, active: $1) }
+        list.performAction = { [weak self] in self?.perform($1, on: $0) }
+        list.canDrop = { [weak self] in self?.canDrop($0, at: $1) == true }
+        list.move = { [weak self] in self?.move($0, to: $1) == true }
+        list.draggingChanged = { [weak self] dragging in
+            if !dragging { self?.refresh() }
+        }
     }
-    var index: Int? { blocks.firstIndex { $0.id == selected } }
-    func save(_ i: Int) { do { try store.save(blocks[i]) } catch { alert("保存失败：\(error.localizedDescription)") } }
-    func alert(_ text: String) { let a = NSAlert(); a.messageText = text; a.runModal() }
+
+    func save(_ i: Int) {
+        do { try store.save(blocks[i]) }
+        catch { alert("保存失败：\(error.localizedDescription)") }
+    }
+
+    func alert(_ text: String) {
+        let alert = NSAlert()
+        alert.messageText = text
+        alert.runModal()
+    }
+
     func reload() {
-        rows = blocks.filter { Reducer.matches($0, query: search.stringValue, archived: include.state == .on) }.sorted { $0.pinned != $1.pinned ? $0.pinned : $0.order < $1.order }.map(\.id)
-        table.reloadData()
-        if let id = selected, let row = rows.firstIndex(of: id) { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+        let visible = blocks.filter { Reducer.matches($0, query: search.stringValue, archived: include.state == .on) }
+            .sorted { $0.pinned != $1.pinned ? $0.pinned : $0.order < $1.order }
+        list.display(visible, shortcuts: shortcuts, canDrag: search.stringValue.isEmpty, actions: availableActions)
     }
-    @objc func refresh() { reload() }
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let b = blocks.first { $0.id == rows[row] }!
-        let label = NSTextField(wrappingLabelWithString: "\(b.pinned ? "📌 " : "")\(b.archived ? "[归档] " : "")\(b.body.isEmpty ? "空白块" : String(b.body.prefix(70)))\n\(b.attention == nil ? "" : "● ")\(b.run?.status ?? "笔记")")
-        label.font = .systemFont(ofSize: 12); return label
+
+    @objc func refresh() {
+        promote()
+        reload()
     }
-    func tableViewSelectionDidChange(_ notification: Notification) {
-        guard table.selectedRow >= 0, table.selectedRow < rows.count else { return }
-        let id = rows[table.selectedRow]
-        if id != selected { selected = id; editor.string = blocks[index!].body; editor.undoManager?.removeAllActions() }
-        detail()
+
+    func controlTextDidChange(_ obj: Notification) { refresh() }
+
+    private func setEditing(_ id: String, active: Bool) {
+        if active {
+            editingID = id
+        } else if editingID == id {
+            editingID = nil
+            DispatchQueue.main.async { [weak self] in self?.refresh() }
+        }
     }
-    func detail() { guard let i = index else { return }; status.stringValue = blocks[i].run?.status ?? "正文自动保存；Enter 换行"; recap.stringValue = blocks[i].recap.isEmpty ? "暂无概况" : "最近回复摘录（可能过期）\n\(blocks[i].recap)\n\(blocks[i].recapSource)" }
-    func textDidBeginEditing(_ notification: Notification) { editing = true }
-    func textDidChange(_ notification: Notification) { guard let i = index else { return }; blocks[i].body = editor.string; blocks[i].revision += 1; blocks[i].updated = Date(); save(i) }
-    func textDidEndEditing(_ notification: Notification) { editing = false; promote(); reload() }
-    func controlTextDidChange(_ obj: Notification) { reload(); if search.stringValue.isEmpty { promote() } }
-    @objc func newBlock() { var b = Block(); b.order = (blocks.map(\.order).min() ?? 0) - 1; blocks.append(b); selected = b.id; editor.string = ""; save(blocks.count - 1); reload(); window.makeFirstResponder(editor) }
-    func copy(_ value: String) { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(value, forType: .string) }
-    @objc func copyBody() { if let i = index { copy(blocks[i].body) } }
-    @objc func copyID() { if let i = index { copy(blocks[i].association?.sessionID ?? "") } }
-    @objc func pin() { if let i = index { blocks[i].pinned.toggle(); save(i); reload() } }
-    @objc func archive() { if let i = index { blocks[i].archived.toggle(); save(i); reload() } }
-    @objc func remove() { if let i = index { blocks[i].deleted = true; blocks[i].updated = Date(); save(i); selected = nil; editor.string = ""; reload() } }
-    @objc func undoDelete() { if let b = blocks.filter({ $0.deleted }).max(by: { $0.updated < $1.updated }), let i = blocks.firstIndex(where: { $0.id == b.id }) { blocks[i].deleted = false; save(i); reload() } }
+
+    private func updateBody(_ id: String, body: String) {
+        guard let i = blocks.firstIndex(where: { $0.id == id }), blocks[i].body != body else { return }
+        blocks[i].body = body
+        blocks[i].revision += 1
+        blocks[i].updated = Date()
+        save(i)
+    }
+
+    @objc func newBlock() {
+        var block = Block()
+        block.order = (blocks.map(\.order).min() ?? 0) - 1
+        blocks.append(block)
+        save(blocks.count - 1)
+        search.stringValue = ""
+        reload()
+        list.focusBody(of: block.id)
+    }
+
+    private func copy(_ value: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(value, forType: .string)
+    }
+
+    private func availableActions(_ block: Block) -> [BlockActionItem] {
+        BlockAction.allCases.compactMap { action in
+            switch action {
+            case .chooseLaunch where block.run != nil:
+                return nil
+            case .pin where block.pinned:
+                return BlockActionItem(action: action, title: "取消置顶")
+            case .archive where block.archived:
+                return BlockActionItem(action: action, title: "恢复归档")
+            case .resume:
+                return BlockActionItem(action: action, title: action.title, enabled: block.association?.sessionID != nil && block.run?.status == "已退出")
+            case .copyID:
+                return BlockActionItem(action: action, title: action.title, enabled: block.association?.sessionID != nil)
+            case .toggleRecap:
+                guard !block.recap.isEmpty else { return nil }
+                let title = block.recapHidden == true ? action.title : "隐藏最近回复"
+                return BlockActionItem(action: action, title: title)
+            default:
+                return BlockActionItem(action: action, title: action.title)
+            }
+        }
+    }
+
+    private func perform(_ action: BlockAction, on id: String) {
+        guard let i = blocks.firstIndex(where: { $0.id == id && !$0.deleted }) else { return }
+        switch action {
+        case .start:
+            start(i)
+            return
+        case .chooseLaunch:
+            chooseLaunch(i)
+            return
+        case .copyBody:
+            copy(blocks[i].body)
+            return
+        case .resume:
+            resume(i)
+            return
+        case .copyID:
+            if let sessionID = blocks[i].association?.sessionID { copy(sessionID) }
+            return
+        case .pin:
+            blocks[i].pinned.toggle()
+        case .archive:
+            blocks[i].archived.toggle()
+        case .remove:
+            blocks[i].deleted = true
+            blocks[i].updated = Date()
+        case .toggleRecap:
+            blocks[i].recapHidden = blocks[i].recapHidden != true
+        }
+        save(i)
+        reload()
+    }
+
+    @objc func undoDelete() {
+        guard let i = blocks.indices.filter({ blocks[$0].deleted }).max(by: { blocks[$0].updated < blocks[$1].updated }) else { return }
+        blocks[i].deleted = false
+        save(i)
+        reload()
+    }
+
     @objc func floatWindow(_ sender: NSButton) {
         window.level = sender.state == .on ? .floating : .normal
     }
-    func tableView(_ tableView: NSTableView, pasteboardWriterForRow row: Int) -> NSPasteboardWriting? { let item = NSPasteboardItem(); item.setString(rows[row], forType: .string); return item }
-    func tableView(_ tableView: NSTableView, validateDrop info: NSDraggingInfo, proposedRow row: Int, proposedDropOperation operation: NSTableView.DropOperation) -> NSDragOperation { tableView.setDropRow(row, dropOperation: .above); return .move }
-    func tableView(_ tableView: NSTableView, acceptDrop info: NSDraggingInfo, row: Int, dropOperation: NSTableView.DropOperation) -> Bool {
-        guard search.stringValue.isEmpty, let id = info.draggingPasteboard.string(forType: .string), let from = rows.firstIndex(of: id), let i = blocks.firstIndex(where: { $0.id == id }) else { return false }
-        if row < rows.count, let target = blocks.first(where: { $0.id == rows[row] }), target.pinned != blocks[i].pinned { return false }
-        var order = rows; order.remove(at: from); order.insert(id, at: min(order.count, max(0, row - (from < row ? 1 : 0))))
-        for (rank, id) in order.enumerated() { let j = blocks.firstIndex { $0.id == id }!; blocks[j].order = Double(rank); save(j) }; reload(); return true
+
+    private func canDrop(_ id: String, at target: BlockListView.Drop) -> Bool {
+        guard search.stringValue.isEmpty,
+              let source = blocks.first(where: { $0.id == id && !$0.deleted }),
+              let anchor = blocks.first(where: { $0.id == target.anchorID && !$0.deleted }) else { return false }
+        return source.pinned == anchor.pinned
     }
+
+    private func move(_ id: String, to target: BlockListView.Drop) -> Bool {
+        guard canDrop(id, at: target), let source = blocks.firstIndex(where: { $0.id == id }) else { return false }
+        if id == target.anchorID { return true }
+        let current = blocks.indices.filter { !blocks[$0].deleted && blocks[$0].pinned == blocks[source].pinned }
+            .sorted { blocks[$0].order < blocks[$1].order }
+        var order = current.filter { $0 != source }
+        let anchor = order.firstIndex { blocks[$0].id == target.anchorID }!
+        switch target {
+        case .before: order.insert(source, at: anchor)
+        case .after: order.insert(source, at: anchor + 1)
+        }
+        guard order != current else { return true }
+        let changes = order.enumerated().compactMap { rank, index -> (Int, Block)? in
+            var block = blocks[index]
+            guard block.order != Double(rank) else { return nil }
+            block.order = Double(rank)
+            return (index, block)
+        }
+        do {
+            try store.save(changes.map { $0.1 })
+            for (index, block) in changes { blocks[index] = block }
+            reload()
+            return true
+        } catch {
+            alert("保存顺序失败：\(error.localizedDescription)")
+            return false
+        }
+    }
+
     func consume() {
         guard let urls = try? FileManager.default.contentsOfDirectory(at: root.appendingPathComponent("inbox"), includingPropertiesForKeys: nil) else { return }
         let events = urls.filter { $0.pathExtension == "json" }.compactMap { url -> (URL, BridgeEvent)? in guard let d = try? Data(contentsOf: url), d.count < 100_000, let e = try? JSONDecoder().decode(BridgeEvent.self, from: d) else { return nil }; return (url, e) }.sorted { $0.1.sequence < $1.1.sequence }
@@ -129,29 +305,103 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
                 if Reducer.apply(event, to: &blocks[i]) { do { try store.save(blocks[i]); try? FileManager.default.removeItem(at: url) } catch { alert("事件保存失败：\(error)") } }
             }
         }
-        promote(); detail()
+        refresh()
     }
     func promote() {
-        guard !editing, !editor.hasMarkedText(), search.stringValue.isEmpty else { return }
+        guard editingID == nil, !list.dragging, search.stringValue.isEmpty,
+              (window.firstResponder as? NSTextView)?.hasMarkedText() != true else { return }
         let pending = blocks.filter { $0.attention != nil && $0.attention != $0.attentionPromoted }.sorted { ($0.attentionTime ?? "") < ($1.attentionTime ?? "") }
         for b in pending {
             guard let i = blocks.firstIndex(where: { $0.id == b.id }) else { continue }
             if !b.pinned, !b.archived, !b.deleted { blocks[i].order = (blocks.map(\.order).min() ?? 0) - 1 }
             blocks[i].attentionPromoted = b.attention; save(i)
         }
-        reload()
     }
+
+    private func launchPicker(_ values: [String], selected: String, label: String) -> NSPopUpButton {
+        let picker = NSPopUpButton()
+        picker.addItems(withTitles: values)
+        picker.selectItem(withTitle: selected)
+        picker.setAccessibilityLabel(label)
+        return picker
+    }
+
+    private func launchPickers() -> (agent: NSPopUpButton, terminal: NSPopUpButton) {
+        let saved = LaunchOptions.saved
+        return (launchPicker(LaunchOptions.agents, selected: saved.agent, label: "Agent"),
+                launchPicker(LaunchOptions.terminals, selected: saved.terminal, label: "终端"))
+    }
+
+    private func pickerRow(_ agent: NSPopUpButton, _ terminal: NSPopUpButton) -> NSStackView {
+        NSStackView(views: [NSTextField(labelWithString: "Agent"), agent, NSTextField(labelWithString: "终端"), terminal])
+    }
+
+    private func chooseLaunch(_ i: Int) {
+        guard blocks[i].run == nil else { return }
+        let (agent, terminal) = launchPickers()
+        let row = pickerRow(agent, terminal)
+        row.frame.size = row.fittingSize
+        let alert = NSAlert()
+        alert.messageText = "选择 agent 和终端"
+        alert.informativeText = "所选设置只用于这次启动。"
+        alert.accessoryView = row
+        alert.addButton(withTitle: "启动")
+        alert.addButton(withTitle: "取消")
+        if alert.runModal() == .alertFirstButtonReturn, blocks[i].run == nil, !blocks[i].deleted {
+            launch(i, restoring: false, options: LaunchOptions(agent: agent.titleOfSelectedItem ?? LaunchOptions.saved.agent, terminal: terminal.titleOfSelectedItem ?? LaunchOptions.saved.terminal))
+        }
+    }
+
     @objc func settings() {
-        let a = NSAlert(); a.messageText = "首次接入设置"; a.informativeText = "选择终端实际 .app 路径。CLI 路径必须为可执行文件；参数为 JSON 字符串数组。不会更改 Codex/pi 全局配置。"
+        let alert = NSAlert()
+        alert.messageText = "Jotport 设置"
+        let (agent, terminal) = launchPickers()
         let names = ["WezTermApp", "GhosttyApp", "codexPath", "piPath", "directory", "arguments"]
+        let labels = ["WezTerm 应用路径", "Ghostty 应用路径", "Codex 可执行文件", "pi 可执行文件", "默认工作目录", "参数（JSON 字符串数组）"]
         let searchPath = agentSearchPath()
         let defaults = ["/Applications/WezTerm.app", "/Applications/Ghostty.app", defaultAgentPath("codex", searchPath: searchPath), defaultAgentPath("pi", searchPath: searchPath), FileManager.default.homeDirectoryForCurrentUser.path, "[]"]
-        let stack = NSStackView(); stack.orientation = .vertical; stack.alignment = .leading
+        let stack = NSStackView(views: [pickerRow(agent, terminal)])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 4
         var fields: [NSTextField] = []
-        for (key, value) in zip(names, defaults) { stack.addArrangedSubview(NSTextField(labelWithString: key)); let f = NSTextField(string: UserDefaults.standard.string(forKey: key) ?? value); f.widthAnchor.constraint(equalToConstant: 500).isActive = true; stack.addArrangedSubview(f); fields.append(f) }
-        stack.frame = NSRect(x: 0, y: 0, width: 500, height: 310); a.accessoryView = stack; a.addButton(withTitle: "保存"); a.addButton(withTitle: "取消")
-        if a.runModal() == .alertFirstButtonReturn { for (key, f) in zip(names, fields) { UserDefaults.standard.set(f.stringValue, forKey: key) }; UserDefaults.standard.set(agent.titleOfSelectedItem, forKey: "agent"); UserDefaults.standard.set(terminal.titleOfSelectedItem, forKey: "terminal") }
+        for (index, key) in names.enumerated() {
+            let field = NSTextField(string: UserDefaults.standard.string(forKey: key) ?? defaults[index])
+            field.setAccessibilityLabel(labels[index])
+            field.widthAnchor.constraint(equalToConstant: 430).isActive = true
+            stack.addArrangedSubview(NSTextField(labelWithString: labels[index]))
+            stack.addArrangedSubview(field)
+            fields.append(field)
+        }
+
+        let shortcutSettings = ShortcutSettingsView(actions: shortcuts)
+        let tabs = NSTabView(frame: NSRect(x: 0, y: 0, width: 470, height: 350))
+        for (title, view) in [("终端与 agent", stack), ("块快捷操作", shortcutSettings)] {
+            let item = NSTabViewItem(identifier: title)
+            item.label = title
+            let container = NSView()
+            view.translatesAutoresizingMaskIntoConstraints = false
+            container.addSubview(view)
+            NSLayoutConstraint.activate([
+                view.topAnchor.constraint(equalTo: container.topAnchor, constant: 14),
+                view.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 14)
+            ])
+            item.view = container
+            tabs.addTabViewItem(item)
+        }
+        alert.accessoryView = tabs
+        alert.addButton(withTitle: "保存")
+        alert.addButton(withTitle: "取消")
+        if alert.runModal() == .alertFirstButtonReturn {
+            let preferences = UserDefaults.standard
+            for (key, field) in zip(names, fields) { preferences.set(field.stringValue, forKey: key) }
+            preferences.set(agent.titleOfSelectedItem, forKey: "agent")
+            preferences.set(terminal.titleOfSelectedItem, forKey: "terminal")
+            preferences.set(shortcutSettings.actions.map(\.rawValue), forKey: shortcutKey)
+            reload()
+        }
     }
+
     func quote(_ s: String) -> String { "'" + s.replacingOccurrences(of: "'", with: "'\\''") + "'" }
     func defaultAgentPath(_ name: String, searchPath: String) -> String {
         let home = FileManager.default.homeDirectoryForCurrentUser
@@ -179,8 +429,7 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         guard p.terminationStatus == 0 else { throw NSError(domain: "Probe", code: 1, userInfo: [NSLocalizedDescriptionKey: String(data: data, encoding: .utf8) ?? "探测失败"]) }
         return String(data: data, encoding: .utf8) ?? ""
     }
-    @objc func start() {
-        guard let i = index else { return }
+    func start(_ i: Int) {
         consume()
         guard let run = blocks[i].run else { launch(i, restoring: false); return }
         if run.status == "启动中" { return }
@@ -188,7 +437,7 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
         if canRetry(i, runID: run.id) {
             let confirmation = NSAlert()
             confirmation.messageText = "上一次启动未确认"
-            confirmation.informativeText = "先在原终端确认这个块没有对应的会话，再用当前选择的终端重试。"
+            confirmation.informativeText = "先在原终端确认这个块没有对应的会话，再重试启动。"
             confirmation.addButton(withTitle: "取消")
             confirmation.addButton(withTitle: "确认重试")
             if original != nil { confirmation.addButton(withTitle: "返回原终端") }
@@ -212,7 +461,6 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     }
     func activateTerminal(_ application: NSRunningApplication) {
         application.activate(options: [.activateIgnoringOtherApps])
-        status.stringValue = "已返回终端应用。请在终端中选择对应窗口。"
     }
     func canRetry(_ i: Int, runID: String) -> Bool {
         blocks[i].run?.id == runID && blocks[i].association?.sessionID == nil &&
@@ -221,15 +469,15 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
     func launchMarker(_ runID: String) -> URL {
         root.appendingPathComponent("runs/\(runID)/started")
     }
-    @objc func resume() {
-        guard let i = index, blocks[i].association?.sessionID != nil else { alert("尚无真实原生会话 ID，不能冒充恢复。pi 会自动上报；Codex 当前需完成正式 hooks 接入。"); return }
+    func resume(_ i: Int) {
+        guard blocks[i].association?.sessionID != nil else { alert("尚无真实原生会话 ID，不能冒充恢复。pi 会自动上报；Codex 当前需完成正式 hooks 接入。"); return }
         guard blocks[i].run?.status == "已退出" else { alert("尚未确认对应运行退出；为防止重复运行，暂不恢复。"); return }
         launch(i, restoring: true)
     }
-    func launch(_ i: Int, restoring: Bool) {
+    func launch(_ i: Int, restoring: Bool, options: LaunchOptions = .saved) {
         let defaults = UserDefaults.standard
-        let name = restoring ? blocks[i].association!.agent : (agent.titleOfSelectedItem ?? "codex")
-        let term = terminal.titleOfSelectedItem ?? "WezTerm"
+        let name = restoring ? blocks[i].association!.agent : options.agent
+        let term = options.terminal
         let terminalURL = URL(fileURLWithPath: defaults.string(forKey: term + "App") ?? "/Applications/\(term).app").resolvingSymlinksInPath()
         let path = terminalURL.path
         guard !blocks.contains(where: { $0.run?.terminal?.path == path && $0.run?.status == "启动中" }) else {
@@ -283,7 +531,7 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
             candidate.run = run
             try store.save(candidate)
             blocks[i] = candidate
-            detail(); reload()
+            reload()
 
             openTerminal(term, at: terminalURL, identity: identity, executable: terminalCLI, script: scriptURL, cwd: cwd, runID: run.id)
         } catch {
@@ -378,7 +626,7 @@ final class App: NSObject, NSApplicationDelegate, NSTableViewDataSource, NSTable
             blocks[i].run?.terminal?.processID = application.processIdentifier
             blocks[i].run?.terminal?.launchedAt = application.launchDate
         }
-        save(i); detail(); reload()
+        save(i); reload()
     }
 }
 let app = NSApplication.shared
