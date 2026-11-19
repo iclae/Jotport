@@ -91,11 +91,12 @@ final class BlockListView: NSView {
         if let id = visibleIDs.first { focusBody(of: id) }
     }
 
-    func focusBody(of id: String) {
+    @discardableResult func focusBody(of id: String) -> Bool {
         layoutSubtreeIfNeeded()
-        guard let row = rows[id] else { return }
+        guard let row = rows[id] else { return false }
         scrollToVisible(convert(row.bounds, from: row))
         row.focusBody()
+        return true
     }
 
     private func addRow(_ block: Block, at index: Int) -> BlockRowView {

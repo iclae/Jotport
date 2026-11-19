@@ -13,7 +13,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
     private let recap = BlockTextView(fontSize: 13)
     private let recapRow = NSView()
     private let status = NSImageView()
-    private let attention = NSButton(title: "待查看 →", target: nil, action: nil)
+    private let attention = AttentionButton(title: "待查看 →", target: nil, action: nil)
     private let dragHandle: BlockDragHandle
     private let more = NSButton()
     private let hideRecap = NSButton()
@@ -66,6 +66,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         hideRecap.isHidden = true
 
         attention.bezelStyle = .inline
+        attention.isBordered = false
         attention.font = .systemFont(ofSize: 12, weight: .medium)
         attention.contentTintColor = ScratchpadStyle.action
         attention.target = self
@@ -121,7 +122,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             dragHandle.widthAnchor.constraint(equalToConstant: 25),
             dragHandle.heightAnchor.constraint(equalToConstant: 26),
             status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
-            status.topAnchor.constraint(equalTo: topAnchor, constant: 42),
+            status.topAnchor.constraint(equalTo: topAnchor, constant: 38),
             status.widthAnchor.constraint(equalToConstant: 17),
             status.heightAnchor.constraint(equalToConstant: 17),
             more.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),

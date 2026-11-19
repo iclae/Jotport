@@ -16,6 +16,26 @@ enum ScratchpadStyle {
     static let actionTint = adaptive(0xF0F4FD, dark: .controlBackgroundColor)
 }
 
+final class ScratchpadWindow: NSWindow {
+    var closeSearch: (() -> Bool)?
+    override func cancelOperation(_ sender: Any?) {
+        if let text = firstResponder as? NSTextView, text.hasMarkedText() { return }
+        if closeSearch?() != true { super.cancelOperation(sender) }
+    }
+}
+
+final class AttentionButton: NSButton {
+    override func draw(_ dirtyRect: NSRect) {
+        ScratchpadStyle.actionTint.setFill()
+        NSBezierPath(roundedRect: bounds, xRadius: 5, yRadius: 5).fill()
+        super.draw(dirtyRect)
+    }
+    override var intrinsicContentSize: NSSize {
+        let size = super.intrinsicContentSize
+        return NSSize(width: size.width + 12, height: max(25, size.height))
+    }
+}
+
 /// A native, on-demand search surface; composition owns Escape until it commits/cancels.
 final class ScratchpadSearch: NSObject, NSSearchFieldDelegate {
     let field = NSSearchField()

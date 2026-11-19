@@ -65,7 +65,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
     func button(_ title: String, _ action: Selector) -> NSButton { NSButton(title: title, target: self, action: action) }
     func buildUI() {
-        window = NSWindow(contentRect: NSRect(x: 160, y: 160, width: 444, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = ScratchpadWindow(contentRect: NSRect(x: 160, y: 160, width: 444, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "Jotport"
         window.backgroundColor = ScratchpadStyle.background
@@ -95,11 +95,12 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(editItem)
         NSApp.mainMenu = menu
 
+        (window as? ScratchpadWindow)?.closeSearch = { [weak self] in self?.searchPanel.close() ?? false }
         searchPanel.changed = { [weak self] in self?.refresh() }
         searchPanel.closed = { [weak self] in
             guard let self else { return }
-            if let id = self.searchReturnID { self.list.focusBody(of: id) }
-            else { self.list.focusFirstBody() }
+            if let id = self.searchReturnID, self.list.focusBody(of: id) { return }
+            self.list.focusFirstBody()
         }
         let searchButton = iconButton("magnifyingglass", label: "搜索笔记（⌘F）", action: #selector(openSearch))
         configureIcon(windowPin, symbol: "pin", label: "窗口置顶", action: #selector(floatWindow(_:)))
