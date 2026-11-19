@@ -370,11 +370,11 @@ private final class BlockTextView: NSTextView {
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
-        let menu = super.menu(for: event) ?? NSMenu()
+        let menu = (super.menu(for: event)?.copy() as? NSMenu) ?? NSMenu()
         if let actions = blockMenu?() {
             menu.addItem(.separator())
             let item = NSMenuItem(title: "块操作", action: nil, keyEquivalent: "")
-            item.submenu = actions
+            item.submenu = actions.copy() as? NSMenu
             menu.addItem(item)
         }
         return menu
