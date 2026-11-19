@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "tool": "dream-factory",
+  "version": "0.1.0",
+  "packageDigest": "d8a06f6082259a417f4b1ecf59a9d7c3c76cd7f62e148b0c3139d42b6c515109",
+  "managed": [
+    {
+      "path": ".agents/skills/project-workflow/SKILL.md",
+      "digest": "d8f3d4d568390643dd6ccb222317b0d920be3bec9df9d53e32d33b72c8e833c9"
+    },
+    {
+      "path": ".claude/skills/project-workflow/SKILL.md",
+      "digest": "d8f3d4d568390643dd6ccb222317b0d920be3bec9df9d53e32d33b72c8e833c9"
+    },
+    {
+      "path": ".agents/skills/project-workflow/package.json",
+      "digest": "8f68a54f060b3e5cfd864f7e575d55f6ac661d5cc60759dbeee37f1bd789a66f"
+    },
+    {
+      "path": ".agents/skills/project-workflow/scripts/factory.mjs",
+      "digest": "cea5b90a2e3bf788d157d4c8f11d65c6dbb8fd57ca1738278dfb059b3f143551"
+    },
+    {
+      "path": ".agents/skills/project-workflow/references/records.md",
+      "digest": "a04f9f4aaa67348e412af2c360140bed113c99733a8388f09a518aba7796f74f"
+    },
+    {
+      "path": ".factory/workflow.md",
+      "digest": "52a2bbbc028d7df4b0f5e0c56a763d1c2b24cc689507082794e763ddfa2a5171"
+    },
+    {
+      "path": ".agents/skills/project-workflow/runtime/workspace/files.js",
+      "digest": "69e67f61469fd1f98bb68918de3107b079f86959e39619c4de52a1efd83ab4d5"
+    },
+    {
+      "path": ".agents/skills/project-workflow/runtime/workspace/implementation.js",
+      "digest": "f192e7b3680fb4dcc79476a59bc3defee15aab2a3201787614678c397bf0a9f8"
+    },
+    {
+      "path": ".agents/skills/project-workflow/runtime/workspace/index.js",
+      "digest": "00955b4a2ff629dda3ecaaa8e8700076c2c44952ae61ead2dbc2ecba0701bbf5"
+    },
+    {
+      "path": ".agents/skills/project-workflow/runtime/workspace/transaction.js",
+      "digest": "97c1d32f68d346ece571ba4b384e38662ce0a79dbeacb44fb82dad915dbc7672"
+    },
+    {
+      "path": ".agents/skills/project-workflow/runtime/workspace/types.js",
+      "digest": "6e0078ad6852e64f6165e1afada7d0e370ae275cb294fc7f8ff702c4a3b2c25e"
+    },
+    {
+      "path": ".agents/skills/project-workflow/runtime/storage/index.js",
+      "digest": "d610458ef5fcbeda7b9aab9ee4846c5b20094ef7d2e9a5262d9edd6324749807"
+    }
+  ],
+  "localFiles": []
+}
