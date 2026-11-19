@@ -143,8 +143,9 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         marker.stringValue = blockMarkers.joined(separator: " · ")
         marker.isHidden = blockMarkers.isEmpty
 
-        if statusText != block.run?.status {
-            statusText = block.run?.status
+        let sessionStatus = block.association?.sessionID?.isEmpty == false ? block.run?.status : nil
+        if statusText != sessionStatus {
+            statusText = sessionStatus
             updateStatus()
         }
         if !block.recap.isEmpty {
