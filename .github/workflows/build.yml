@@ -20,7 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test core and compile AppKit
-        run: swift test --arch x86_64
+        run: JOTPORT_UI_EVIDENCE="$PWD/dist" swift test --arch x86_64
       - name: Package macOS 12 Intel app
         run: bash scripts/package.sh
       - name: Launch smoke test

@@ -9,7 +9,8 @@ final class App: NSObject, NSApplicationDelegate {
     var search: NSSearchField { searchPanel.field }
     var include: NSButton { searchPanel.includeArchived }
     private var searchReturnID: String?
-    private let windowPin = NSButton()
+    let windowPin = WindowPinButton()
+    let searchButton = NSButton()
     let list = BlockListView()
     var blocks: [Block] = []
     var store: Store!
@@ -65,11 +66,14 @@ final class App: NSObject, NSApplicationDelegate {
     }
     func button(_ title: String, _ action: Selector) -> NSButton { NSButton(title: title, target: self, action: action) }
     func buildUI() {
-        window = ScratchpadWindow(contentRect: NSRect(x: 160, y: 160, width: 444, height: 600), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+        window = ScratchpadWindow(contentRect: NSRect(x: 160, y: 160, width: 444, height: 325), styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         window.title = "Jotport"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
         window.backgroundColor = ScratchpadStyle.background
-        window.contentMinSize = NSSize(width: 360, height: 280)
+        window.contentMinSize = NSSize(width: 360, height: 240)
+        window.setFrame(NSRect(x: 160, y: 160, width: 444, height: 325), display: false)
         window.level = .normal
         window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         window.acceptsMouseMovedEvents = true
@@ -95,30 +99,59 @@ final class App: NSObject, NSApplicationDelegate {
         menu.addItem(editItem)
         NSApp.mainMenu = menu
 
-        (window as? ScratchpadWindow)?.closeSearch = { [weak self] in self?.searchPanel.close() ?? false }
+        (window as? ScratchpadWindow)?.searchIsOpen = { [weak self] in self?.searchPanel.isOpen ?? false }
+        (window as? ScratchpadWindow)?.closeSearch = { [weak self] in
+            guard let self, (self.window as? ScratchpadWindow)?.routingCompositionEscape != true else { return false }
+            return self.searchPanel.close()
+        }
         searchPanel.changed = { [weak self] in self?.refresh() }
         searchPanel.closed = { [weak self] in
             guard let self else { return }
+            self.searchButton.contentTintColor = ScratchpadStyle.secondary
             if let id = self.searchReturnID, self.list.focusBody(of: id) { return }
             self.list.focusFirstBody()
         }
-        let searchButton = iconButton("magnifyingglass", label: "搜索笔记（⌘F）", action: #selector(openSearch))
+        configureIcon(searchButton, symbol: "magnifyingglass", label: "搜索笔记（⌘F，再次点击关闭）", action: #selector(toggleSearch))
         configureIcon(windowPin, symbol: "pin", label: "窗口置顶", action: #selector(floatWindow(_:)))
-        windowPin.setButtonType(.toggle)
-        windowPin.state = .off
+        windowPin.synchronize(with: window)
         let options = iconButton("ellipsis", label: "选项与设置", action: #selector(showOptions(_:)))
         let add = iconButton("plus", label: "新建笔记（⌘N）", action: #selector(newBlock))
         add.contentTintColor = ScratchpadStyle.action
-        let spacer = NSView()
-        spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        let tools = NSStackView(views: [searchButton, windowPin, spacer, options, add])
-        tools.spacing = 6
-        let top = NSStackView(views: [tools, searchPanel.view])
+        let tools = NSStackView(views: [searchButton, windowPin, options, add])
+        tools.spacing = 5
+        let rail = TitleRail()
+        let title = NSTextField(labelWithString: "Jotport")
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        title.textColor = ScratchpadStyle.secondary
+        for child in [title, tools] {
+            child.translatesAutoresizingMaskIntoConstraints = false
+            rail.addSubview(child)
+        }
+        NSLayoutConstraint.activate([
+            rail.heightAnchor.constraint(equalToConstant: 42),
+            title.centerXAnchor.constraint(equalTo: rail.centerXAnchor),
+            title.centerYAnchor.constraint(equalTo: rail.centerYAnchor),
+            tools.trailingAnchor.constraint(equalTo: rail.trailingAnchor, constant: -8),
+            tools.centerYAnchor.constraint(equalTo: rail.centerYAnchor)
+        ])
+        let searchInset = NSView()
+        searchInset.translatesAutoresizingMaskIntoConstraints = false
+        searchInset.addSubview(searchPanel.view)
+        searchPanel.view.translatesAutoresizingMaskIntoConstraints = false
+        NSLayoutConstraint.activate([
+            searchPanel.view.leadingAnchor.constraint(equalTo: searchInset.leadingAnchor, constant: 22),
+            searchPanel.view.trailingAnchor.constraint(equalTo: searchInset.trailingAnchor, constant: -22),
+            searchPanel.view.topAnchor.constraint(equalTo: searchInset.topAnchor, constant: 12),
+            searchPanel.view.bottomAnchor.constraint(equalTo: searchInset.bottomAnchor, constant: -8)
+        ])
+        searchInset.isHidden = true
+        searchPanel.visibilityChanged = { [weak searchInset] open in searchInset?.isHidden = !open }
+        let top = NSStackView(views: [rail, searchInset])
         top.orientation = .vertical
         top.alignment = .leading
-        top.spacing = 10
-        tools.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
-        searchPanel.view.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
+        top.spacing = 0
+        rail.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
+        searchInset.widthAnchor.constraint(equalTo: top.widthAnchor).isActive = true
 
         let scroll = NSScrollView()
         scroll.drawsBackground = false
@@ -147,13 +180,13 @@ final class App: NSObject, NSApplicationDelegate {
         list.translatesAutoresizingMaskIntoConstraints = false
         let clip = scroll.contentView
         NSLayoutConstraint.activate([
-            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 6),
-            top.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
-            top.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            divider.topAnchor.constraint(equalTo: top.bottomAnchor, constant: 6),
+            top.topAnchor.constraint(equalTo: content.topAnchor, constant: 0),
+            top.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            top.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            divider.topAnchor.constraint(equalTo: top.topAnchor, constant: 42),
             divider.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             divider.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: divider.bottomAnchor),
+            scroll.topAnchor.constraint(equalTo: top.bottomAnchor),
             scroll.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: content.bottomAnchor),
@@ -212,16 +245,20 @@ final class App: NSObject, NSApplicationDelegate {
         button.setAccessibilityLabel(label)
         button.target = self
         button.action = action
-        button.widthAnchor.constraint(equalToConstant: 30).isActive = true
-        button.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
     }
     private func iconButton(_ symbol: String, label: String, action: Selector) -> NSButton {
         let button = NSButton()
         configureIcon(button, symbol: symbol, label: label, action: action)
         return button
     }
+    @objc func toggleSearch() {
+        if searchPanel.isOpen { searchPanel.close() } else { openSearch() }
+    }
     @objc func openSearch() {
         if !searchPanel.isOpen { searchReturnID = editingID }
+        searchButton.contentTintColor = ScratchpadStyle.action
         searchPanel.open(in: window)
     }
     @objc private func showOptions(_ sender: NSButton) {
@@ -364,7 +401,7 @@ final class App: NSObject, NSApplicationDelegate {
     }
 
     @objc func floatWindow(_ sender: NSButton) {
-        window.level = sender.state == .on ? .floating : .normal
+        windowPin.toggle(window: window)
     }
 
     private func canDrop(_ id: String, at target: BlockListView.Drop) -> Bool {

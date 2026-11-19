@@ -8,12 +8,13 @@ final class BlockRowView: NSView, NSTextViewDelegate {
     var editingChanged: ((Bool) -> Void)?
     var performAction: ((BlockAction) -> Void)?
 
-    private let editor = BlockTextView(fontSize: 16, placeholder: "输入正文")
+    private let editor = BlockTextView(fontSize: 14, placeholder: "输入正文")
     private let bodyUndo = UndoManager()
     private let recap = BlockTextView(fontSize: 13)
     private let recapRow = NSView()
     private let status = NSImageView()
-    private let attention = AttentionButton(title: "待查看 →", target: nil, action: nil)
+    private let attention = NSButton(title: "◆ 待查看", target: nil, action: nil)
+    private let reviewAction = AttentionButton()
     private let dragHandle: BlockDragHandle
     private let more = NSButton()
     private let hideRecap = NSButton()
@@ -38,6 +39,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         editor.delegate = self
         editor.allowsUndo = true
         editor.setAccessibilityLabel("块正文")
+        editor.emphasizesFirstLine = true
         editor.string = block.body
         recap.isEditable = false
         recap.textColor = ScratchpadStyle.secondary
@@ -68,13 +70,21 @@ final class BlockRowView: NSView, NSTextViewDelegate {
 
         attention.bezelStyle = .inline
         attention.isBordered = false
-        attention.font = .systemFont(ofSize: 12, weight: .medium)
-        attention.contentTintColor = ScratchpadStyle.action
+        attention.font = .systemFont(ofSize: 11, weight: .semibold)
+        attention.contentTintColor = ScratchpadStyle.adaptive(0x8C4B00, dark: .systemOrange)
         attention.target = self
         attention.action = #selector(viewResult)
         attention.toolTip = "返回会话查看结果"
         attention.setAccessibilityLabel("结果待查看，返回会话")
         attention.isHidden = true
+        reviewAction.image = NSImage(systemSymbolName: "terminal", accessibilityDescription: "返回会话")
+        reviewAction.isBordered = false
+        reviewAction.contentTintColor = ScratchpadStyle.action
+        reviewAction.target = self
+        reviewAction.action = #selector(viewResult)
+        reviewAction.toolTip = "返回会话查看结果"
+        reviewAction.setAccessibilityLabel("返回会话查看结果")
+        reviewAction.isHidden = true
         editor.blockMenu = { [weak self] in self?.makeMenu() }
         let content = NSStackView(views: [marker, editor, recapRow, attention])
         content.orientation = .vertical
@@ -95,20 +105,25 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         shortcutStack.spacing = 2
         shortcutBar.addSubview(shortcutStack)
 
-        for view in [content, status, dragHandle, divider, shortcutBar, more] {
+        for view in [content, status, dragHandle, divider, shortcutBar, more, reviewAction] {
             addSubview(view)
         }
         recapRow.addSubview(recap)
         recapRow.addSubview(hideRecap)
-        for view in [content, marker, editor, recapRow, recap, status, dragHandle, divider, shortcutBar, shortcutStack, more, hideRecap] {
+        for view in [content, marker, editor, recapRow, recap, status, dragHandle, divider, shortcutBar, shortcutStack, more, hideRecap, reviewAction] {
             view.translatesAutoresizingMaskIntoConstraints = false
         }
 
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 30),
-            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -34),
-            content.topAnchor.constraint(equalTo: topAnchor, constant: 14),
-            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14),
+            content.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            content.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            content.topAnchor.constraint(equalTo: topAnchor, constant: 16),
+            content.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -10),
+            heightAnchor.constraint(greaterThanOrEqualToConstant: 78),
+            reviewAction.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            reviewAction.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -12),
+            reviewAction.widthAnchor.constraint(equalToConstant: 26),
+            reviewAction.heightAnchor.constraint(equalToConstant: 26),
             editor.widthAnchor.constraint(equalTo: content.widthAnchor),
             recapRow.widthAnchor.constraint(equalTo: content.widthAnchor),
             recap.leadingAnchor.constraint(equalTo: recapRow.leadingAnchor),
@@ -118,11 +133,11 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             hideRecap.widthAnchor.constraint(greaterThanOrEqualToConstant: 42),
             hideRecap.topAnchor.constraint(equalTo: recapRow.topAnchor, constant: 4),
             hideRecap.trailingAnchor.constraint(equalTo: recapRow.trailingAnchor),
-            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 4),
+            dragHandle.leadingAnchor.constraint(equalTo: leadingAnchor, constant: -12),
             dragHandle.topAnchor.constraint(equalTo: topAnchor, constant: 9),
-            dragHandle.widthAnchor.constraint(equalToConstant: 25),
+            dragHandle.widthAnchor.constraint(equalToConstant: 18),
             dragHandle.heightAnchor.constraint(equalToConstant: 26),
-            status.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            status.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             status.topAnchor.constraint(equalTo: topAnchor, constant: 38),
             status.widthAnchor.constraint(equalToConstant: 17),
             status.heightAnchor.constraint(equalToConstant: 17),
@@ -136,8 +151,8 @@ final class BlockRowView: NSView, NSTextViewDelegate {
             shortcutStack.leadingAnchor.constraint(equalTo: shortcutBar.leadingAnchor, constant: 5),
             shortcutStack.trailingAnchor.constraint(equalTo: shortcutBar.trailingAnchor, constant: -5),
             shortcutStack.centerYAnchor.constraint(equalTo: shortcutBar.centerYAnchor),
-            divider.leadingAnchor.constraint(equalTo: leadingAnchor),
-            divider.trailingAnchor.constraint(equalTo: trailingAnchor),
+            divider.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            divider.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             divider.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
 
@@ -160,6 +175,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
 
         let sessionStatus = block.association?.sessionID?.isEmpty == false ? block.run?.status : nil
         attention.isHidden = sessionStatus != "结果待查看"
+        reviewAction.isHidden = attention.isHidden
         if statusText != sessionStatus {
             statusText = sessionStatus
             updateStatus()
@@ -320,7 +336,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         default:
             (symbol, color) = ("questionmark.circle", .secondaryLabelColor)
         }
-        status.isHidden = false
+        status.isHidden = statusText == "结果待查看"
         status.image = NSImage(systemSymbolName: symbol, accessibilityDescription: statusText)
         status.contentTintColor = color
         status.toolTip = statusText
@@ -333,6 +349,7 @@ private final class BlockTextView: NSTextView {
     private let placeholder: String?
     var blockMenu: (() -> NSMenu?)?
     var focusChanged: (() -> Void)?
+    var emphasizesFirstLine = false
     private let storage: NSTextStorage
 
     init(fontSize: CGFloat, placeholder: String? = nil) {
@@ -407,6 +424,16 @@ private final class BlockTextView: NSTextView {
     }
 
     private func updateHeight() {
+        if emphasizesFirstLine, !hasMarkedText() {
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.lineSpacing = 4
+            let full = NSRange(location: 0, length: (string as NSString).length)
+            storage.setAttributes([.font: NSFont.systemFont(ofSize: 14), .foregroundColor: ScratchpadStyle.secondary, .paragraphStyle: paragraph], range: full)
+            let first = (string as NSString).lineRange(for: NSRange(location: 0, length: 0))
+            if first.length > 0 {
+                storage.addAttributes([.font: NSFont.systemFont(ofSize: 17, weight: .semibold), .foregroundColor: ScratchpadStyle.foreground], range: first)
+            }
+        }
         guard bounds.width > 0, let layoutManager, let textContainer else { return }
         layoutManager.ensureLayout(for: textContainer)
         let textHeight = max(layoutManager.usedRect(for: textContainer).maxY, layoutManager.extraLineFragmentRect.maxY)
