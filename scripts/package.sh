@@ -4,10 +4,12 @@ export MACOSX_DEPLOYMENT_TARGET=12.0
 swift build -c release --arch x86_64
 BIN=$(swift build -c release --arch x86_64 --show-bin-path)
 APP=dist/Jotport.app
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources/licenses"
 cp "$BIN/Jotport" "$APP/Contents/MacOS/"
+cp assets/AppIcon.icns "$APP/Contents/Resources/"
 cp scripts/jotport.ts "$APP/Contents/Resources/"
 cp THIRD_PARTY_NOTICES.md "$APP/Contents/Resources/"
+cp licenses/lucide-LICENSE "$APP/Contents/Resources/licenses/"
 cat > "$APP/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -15,6 +17,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 <key>CFBundleIdentifier</key><string>dev.jotport.app</string>
 <key>CFBundleName</key><string>Jotport</string>
 <key>CFBundleExecutable</key><string>Jotport</string>
+<key>CFBundleIconFile</key><string>AppIcon.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>CFBundleVersion</key><string>3</string>
