@@ -20,6 +20,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Test core and compile AppKit
+        timeout-minutes: 5
         run: JOTPORT_UI_EVIDENCE="$PWD/dist" swift test --arch x86_64
       - name: Package macOS 12 Intel app
         run: bash scripts/package.sh
@@ -37,6 +38,7 @@ jobs:
           done
           exit 1
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: Jotport-macOS12-Intel
           path: |
