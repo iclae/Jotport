@@ -16,7 +16,7 @@
 
 pi 通过单次 `--extension` 加载随包扩展，不写全局配置。扩展从 sessionManager 获取原生 ID；编辑 API 可用时只调用 setEditorText，绝不 sendMessage。预填尝试标记先持久化，避免扩展 reload 后重注入。agent_start 和 agent_settled 上报真实事件。较旧版本缺少最终事件时不能判定完成。需要输入/授权的细分类别尚未接入。
 
-Codex 当前是明确的“待粘贴”降级：仅打开 CLI，点击“复制正文”后手动粘贴并自行发送。尚未接入 Codex 正式 hooks，不自动绑定真实 ID、不伪造状态，不扫描 ~/.codex。按 ID 恢复目前仅对已收到退出事件及真实 ID 的关联开放。不得把该组合标为自动预填通过。
+Codex 当前只会打开 CLI。点击「复制」，看到「已复制」后，在 CLI 中粘贴并发送。尚未接入 Codex 正式 hooks，不自动绑定真实 ID、不伪造状态，不扫描 ~/.codex。按 ID 恢复目前仅对已收到退出事件及真实 ID 的关联开放。不得把该组合标为自动预填通过。
 
 ## 撤销接入
 结束自己需要结束的终端会话；退出 Jotport 并删除 app。pi 扩展只通过本次启动参数加载，不修改用户配置。要保留笔记，保留 Application Support/Jotport；删除该目录会删除笔记、会话关联和事件，不会终止终端进程。

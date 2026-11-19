@@ -14,6 +14,9 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
     var watcher: DispatchSourceFileSystemObject?
     var editingID: String?
     private let shortcutKey = "blockShortcuts"
+    private let copyFeedback = NSVisualEffectView()
+    private let copyFeedbackLabel = NSTextField(labelWithString: "已复制")
+    private var copyFeedbackTimer: Timer?
 
     struct LaunchOptions {
         static let agents = ["codex", "pi"]
@@ -104,7 +107,16 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         let divider = NSBox()
         divider.boxType = .separator
         let content = window.contentView!
-        for view in [top, divider, scroll] {
+        copyFeedback.material = .popover
+        copyFeedback.blendingMode = .withinWindow
+        copyFeedback.state = .active
+        copyFeedback.wantsLayer = true
+        copyFeedback.layer?.cornerRadius = 12
+        copyFeedback.layer?.masksToBounds = true
+        copyFeedback.isHidden = true
+        copyFeedbackLabel.translatesAutoresizingMaskIntoConstraints = false
+        copyFeedback.addSubview(copyFeedbackLabel)
+        for view in [top, divider, scroll, copyFeedback] {
             view.translatesAutoresizingMaskIntoConstraints = false
             content.addSubview(view)
         }
@@ -124,7 +136,13 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             list.topAnchor.constraint(equalTo: clip.topAnchor),
             list.leadingAnchor.constraint(equalTo: clip.leadingAnchor),
             list.widthAnchor.constraint(equalTo: clip.widthAnchor),
-            list.heightAnchor.constraint(greaterThanOrEqualTo: clip.heightAnchor)
+            list.heightAnchor.constraint(greaterThanOrEqualTo: clip.heightAnchor),
+            copyFeedback.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            copyFeedback.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -16),
+            copyFeedbackLabel.leadingAnchor.constraint(equalTo: copyFeedback.leadingAnchor, constant: 12),
+            copyFeedbackLabel.trailingAnchor.constraint(equalTo: copyFeedback.trailingAnchor, constant: -12),
+            copyFeedbackLabel.topAnchor.constraint(equalTo: copyFeedback.topAnchor, constant: 6),
+            copyFeedbackLabel.bottomAnchor.constraint(equalTo: copyFeedback.bottomAnchor, constant: -6)
         ])
         let compactHeight = list.heightAnchor.constraint(equalTo: clip.heightAnchor)
         compactHeight.priority = .defaultLow - 1
@@ -190,9 +208,23 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
         list.focusBody(of: block.id)
     }
 
-    private func copy(_ value: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(value, forType: .string)
+    @discardableResult
+    private func copy(_ value: String) -> Bool {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        return pasteboard.setString(value, forType: .string)
+    }
+
+    private func showCopyFeedback() {
+        copyFeedbackTimer?.invalidate()
+        copyFeedback.isHidden = false
+        NSAccessibility.post(element: NSApplication.shared, notification: .announcementRequested, userInfo: [
+            .announcement: copyFeedbackLabel.stringValue,
+            .priority: NSAccessibilityPriorityLevel.medium.rawValue
+        ])
+        copyFeedbackTimer = Timer.scheduledTimer(withTimeInterval: 1.5, repeats: false) { [weak self] _ in
+            self?.copyFeedback.isHidden = true
+        }
     }
 
     private func availableActions(_ block: Block) -> [BlockActionItem] {
@@ -228,7 +260,7 @@ final class App: NSObject, NSApplicationDelegate, NSSearchFieldDelegate {
             chooseLaunch(i)
             return
         case .copyBody:
-            copy(blocks[i].body)
+            if copy(blocks[i].body) { showCopyFeedback() }
             return
         case .resume:
             resume(i)

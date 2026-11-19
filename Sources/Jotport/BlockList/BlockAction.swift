@@ -10,7 +10,7 @@ enum BlockAction: String, CaseIterable {
         switch self {
         case .start: return "启动 / 返回"
         case .chooseLaunch: return "选择 agent 和终端…"
-        case .copyBody: return "复制正文"
+        case .copyBody: return "复制"
         case .pin: return "置顶"
         case .archive: return "归档"
         case .remove: return "删除"
