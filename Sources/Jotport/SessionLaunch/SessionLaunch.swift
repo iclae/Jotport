@@ -4,6 +4,7 @@ import JotportCore
 
 final class SessionLaunch {
     enum Action {
+        case returnToSession
         case startOrReturn
         case startNew(LaunchOptions)
         case resume
@@ -73,6 +74,8 @@ final class SessionLaunch {
     func perform(_ action: Action, on blockID: String) {
         guard let block = blockForID(blockID), !block.deleted else { return }
         switch action {
+        case .returnToSession:
+            returnToSession(block)
         case .startOrReturn:
             startOrReturn(block)
         case let .startNew(options):
@@ -100,12 +103,31 @@ final class SessionLaunch {
                 launch(.retry(runID: run.id), from: block, options: .saved(in: preparation.preferences))
             case .returnToTerminal:
                 guard let current = blockForID(block.id), !current.deleted, current.run?.id == run.id else { return }
-                current.run?.terminal.flatMap(terminals.locate)?.activate()
+                returnToSession(current)
             }
-        } else if let original {
-            original.activate()
+        } else if original != nil {
+            returnToSession(block)
         } else {
             prompts.alert("状态未知，启动请求已保留。请核对终端。确认原运行退出后可按原 ID 恢复。")
+        }
+    }
+
+    private var focusing: Set<String> = []
+
+    private func returnToSession(_ block: Block) {
+        guard let run = block.run, let reference = run.terminal else {
+            prompts.alert("没有可定位的终端绑定。请手动选择原会话；此操作不会启动新 agent。")
+            return
+        }
+        guard !focusing.contains(run.id) else { return }
+        focusing.insert(run.id)
+        terminals.focus(reference) { [weak self] result in
+            guard let self else { return }
+            self.focusing.remove(run.id)
+            guard let current = self.blockForID(block.id), !current.deleted, current.run?.id == run.id else { return }
+            if case let .failure(error) = result {
+                self.prompts.alert("无法返回绑定会话。\(error.localizedDescription) 待查看状态已保留；请手动选择原会话。")
+            }
         }
     }
 
@@ -246,6 +268,11 @@ final class SessionLaunch {
         if let process {
             run.terminal?.processID = process.processID
             run.terminal?.launchedAt = process.launchedAt
+            if run.terminal?.terminalKind == LaunchOptions.Terminal.wezTerm.rawValue,
+               let (pane, socket) = preparation.paneIdentity(for: runID) {
+                run.terminal?.paneID = pane
+                run.terminal?.socketPath = socket
+            }
         }
         block.run = run
         let saved = Result { try store.save(block) }

@@ -11,7 +11,7 @@ public struct Association: Codable, Equatable {
 }
 public struct TerminalRef: Codable, Equatable {
     public var path: String; public var identity: String; public var version: String
-    public var processID: Int32?; public var launchedAt: Date?; public var paneID: String?
+    public var processID: Int32?; public var launchedAt: Date?; public var paneID: String?; public var socketPath: String?; public var terminalKind: String?
     public init(path: String, identity: String, version: String) { self.path = path; self.identity = identity; self.version = version }
 }
 public struct Run: Codable, Equatable {

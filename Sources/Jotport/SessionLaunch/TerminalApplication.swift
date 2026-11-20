@@ -23,7 +23,11 @@ struct TerminalApplication {
         build = "\(bundle.object(forInfoDictionaryKey: "CFBundleVersion") ?? "unknown")"
     }
 
-    var reference: TerminalRef { TerminalRef(path: url.path, identity: identity, version: version) }
+    var reference: TerminalRef {
+        var result = TerminalRef(path: url.path, identity: identity, version: version)
+        result.terminalKind = kind.rawValue
+        return result
+    }
 
     fileprivate func open(_ script: URL, cwd: String, completion: @escaping (Result<TerminalAccess.Opened, Error>) -> Void) {
         let running = NSRunningApplication.runningApplications(withBundleIdentifier: identity)
@@ -119,6 +123,8 @@ struct TerminalAccess {
 
     let locate: (TerminalRef) -> Process?
     let open: (TerminalApplication, URL, String, @escaping (Result<Opened, Error>) -> Void) -> Void
+
+    var focus: (TerminalRef, @escaping (Result<Void, Error>) -> Void) -> Void = TerminalFocus.perform
 
     static let system = Self(
         locate: { reference in

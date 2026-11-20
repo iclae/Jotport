@@ -123,6 +123,14 @@ struct LaunchPreparation {
         runDirectory(for: runID).appendingPathComponent("started")
     }
 
+    func paneIdentity(for runID: String) -> (String, String)? {
+        let directory = runDirectory(for: runID)
+        guard let pane = try? String(contentsOf: directory.appendingPathComponent("pane"), encoding: .utf8),
+              let socket = try? String(contentsOf: directory.appendingPathComponent("socket"), encoding: .utf8),
+              UInt64(pane) != nil, socket.hasPrefix("/"), !socket.contains("\n") else { return nil }
+        return (pane, socket)
+    }
+
     private func runDirectory(for runID: String) -> URL {
         root.appendingPathComponent("runs").appendingPathComponent(runID)
     }
@@ -168,6 +176,10 @@ struct LaunchPreparation {
         export JOTPORT_INBOX=\(shellQuote(root.appendingPathComponent("inbox").path))
         export JOTPORT_SNAPSHOT=\(shellQuote(sessionID == nil ? snapshotURL.path : ""))
         export JOTPORT_RUN_DIR=\(shellQuote(directory.path))
+        if [ \(shellQuote(options.terminal.rawValue)) = WezTerm ]; then
+            printf '%s' "${WEZTERM_PANE-}" > "$JOTPORT_RUN_DIR/pane"
+            printf '%s' "${WEZTERM_UNIX_SOCKET-}" > "$JOTPORT_RUN_DIR/socket"
+        fi
         : > \(shellQuote(marker(for: run.id).path)) || exit 1
         \(command)
         """

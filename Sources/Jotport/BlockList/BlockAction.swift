@@ -2,13 +2,14 @@
 import AppKit
 
 enum BlockAction: String, CaseIterable {
-    case start, chooseLaunch, chooseDirectory, clearBinding, copyBody, pin, archive, remove, resume, copyID, toggleRecap
+    case returnToSession, start, chooseLaunch, chooseDirectory, clearBinding, copyBody, pin, archive, remove, resume, copyID, toggleRecap
 
     static let defaults: [Self] = [.start, .copyBody, .pin]
-    static let shortcutOptions = allCases.filter { $0 != .chooseDirectory && $0 != .clearBinding }
+    static let shortcutOptions = allCases.filter { $0 != .returnToSession && $0 != .chooseDirectory && $0 != .clearBinding }
 
     var title: String {
         switch self {
+        case .returnToSession: return "返回绑定会话"
         case .start: return "启动 / 返回"
         case .chooseLaunch: return "选择 agent 和终端…"
         case .chooseDirectory: return "修改启动路径…"
@@ -25,6 +26,7 @@ enum BlockAction: String, CaseIterable {
 
     var symbol: String {
         switch self {
+        case .returnToSession: return "arrow.up.forward.app"
         case .start: return "terminal"
         case .chooseLaunch: return "slider.horizontal.3"
         case .chooseDirectory: return "folder"
