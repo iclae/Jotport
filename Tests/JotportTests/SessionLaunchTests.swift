@@ -33,12 +33,37 @@ final class SessionLaunchTests: XCTestCase {
         opening.complete(.success(.init(process: fixture.process(), inExistingApplication: true)))
         let saved = try XCTUnwrap(fixture.store.load().first)
         XCTAssertEqual(saved.run?.status, "运行中")
+        XCTAssertEqual(saved.run?.terminal?.paneID, "17")
+        XCTAssertEqual(saved.run?.terminal?.socketPath, "/tmp/gui-sock-42")
         XCTAssertEqual(saved.run?.terminal?.processID, 42)
         XCTAssertEqual(saved.run?.terminal?.launchedAt, fixture.launchDate)
         fixture.perform(.startOrReturn)
-        XCTAssertEqual(fixture.activations, 2)
+        XCTAssertEqual(fixture.activations, 1)
+        XCTAssertEqual(fixture.focused.count, 1)
         XCTAssertEqual(fixture.openings.count, 1)
         XCTAssertTrue(fixture.alerts.isEmpty)
+    }
+
+    func testReviewNeverStartsRetriesOrClearsAttention() throws {
+        let fixture = try Fixture()
+        var block = Block()
+        block.attention = "待查看"
+        try fixture.save(block)
+        fixture.perform(.returnToSession)
+        XCTAssertTrue(fixture.openings.isEmpty)
+        XCTAssertEqual(fixture.block, block)
+        block.run = Run(snapshot: "")
+        block.run?.terminal = TerminalRef(path: "/legacy", identity: "legacy", version: "old")
+        try fixture.save(block)
+        fixture.focusFails = true
+        fixture.confirmRetry = { _ in XCTFail("Review must never offer retry"); return .retry }
+        fixture.perform(.returnToSession)
+        XCTAssertEqual(fixture.focused.count, 1)
+        XCTAssertTrue(fixture.openings.isEmpty)
+        XCTAssertEqual(fixture.activations, 0)
+        XCTAssertEqual(try fixture.store.load(), [block])
+        XCTAssertEqual(fixture.block, block)
+        XCTAssertEqual(fixture.alerts.count, 2)
     }
 
     func testDirectoryCancellationChangeStaleReplacementAndReuse() throws {
@@ -192,6 +217,8 @@ private final class Fixture {
     var openings: [Opening] = []
     var alerts: [String] = []
     var activations = 0
+    var focused: [TerminalRef] = []
+    var focusFails = false
     var chooseDirectory: (SessionLaunch.DirectoryPrompt) -> String? = { _ in nil }
     var confirmRetry: (Bool) -> SessionLaunch.RetryChoice = { _ in .cancel }
 
@@ -208,6 +235,9 @@ private final class Fixture {
             return process()
         }, open: { [unowned self] _, script, _, complete in
             openings.append(Opening(script: script, saved: try? store.load().first, complete: complete))
+        }, focus: { [unowned self] reference, complete in
+            focused.append(reference)
+            complete(focusFails ? .failure(LaunchFailure(message: "不可达")) : .success(()))
         })
     )
 
@@ -263,6 +293,8 @@ private final class Fixture {
 
     func execute(_ script: URL) throws -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
+        environment["WEZTERM_PANE"] = "17"
+        environment["WEZTERM_UNIX_SOCKET"] = "/tmp/gui-sock-42"
         environment["PATH"] = "/different/terminal/path"
         environment["_VOLTA_TOOL_RECURSION"] = "from-terminal"
         _ = try captureLaunchOutput("/bin/sh", [script.path], environment: environment)

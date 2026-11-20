@@ -314,7 +314,7 @@ final class BlockRowView: NSView, NSTextViewDelegate {
         performAction?(action)
     }
 
-    @objc private func viewResult() { performAction?(.start) }
+    @objc private func viewResult() { performAction?(.returnToSession) }
 
     @objc private func toggleRecap() { performAction?(.toggleRecap) }
 

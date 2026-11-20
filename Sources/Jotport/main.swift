@@ -327,6 +327,8 @@ final class App: NSObject, NSApplicationDelegate {
             switch action {
             case .chooseLaunch where block.association != nil, .chooseDirectory where block.association != nil:
                 return nil
+            case .returnToSession where block.run == nil:
+                return nil
             case .clearBinding where block.association == nil:
                 return nil
             case .pin where block.pinned:
@@ -350,6 +352,10 @@ final class App: NSObject, NSApplicationDelegate {
     private func perform(_ action: BlockAction, on id: String) {
         guard let i = blocks.firstIndex(where: { $0.id == id && !$0.deleted }) else { return }
         switch action {
+        case .returnToSession:
+            consume()
+            sessionLaunch.perform(.returnToSession, on: id)
+            return
         case .start:
             consume()
             sessionLaunch.perform(.startOrReturn, on: id)
