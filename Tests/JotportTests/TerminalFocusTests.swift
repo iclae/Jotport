@@ -19,11 +19,18 @@ final class TerminalFocusTests: XCTestCase {
             XCTAssertEqual(env["WEZTERM_UNIX_SOCKET"], "/tmp/gui-sock-42")
             XCTAssertNil(env["WEZTERM_PANE"])
             if args.contains("activate-pane") { return "" }
-            return "[{\"pane_id\":3,\"is_active\":true},{\"pane_id\":17,\"is_active\":\(calls.count == 3)}]"
+            return "[{\"window_id\":1,\"pane_id\":3,\"is_active\":true},{\"window_id\":1,\"pane_id\":17,\"is_active\":\(calls.count == 3)}]"
         }
         XCTAssertEqual(calls, [["cli", "--no-auto-start", "list", "--format", "json"],
                                ["cli", "--no-auto-start", "activate-pane", "--pane-id", "17"],
                                ["cli", "--no-auto-start", "list", "--format", "json"]])
+    }
+
+    func testMultipleWindowsCannotFallBackToCurrentWindow() {
+        XCTAssertThrowsError(try TerminalFocus.focusWezTerm(reference(), sockets: "n/tmp/gui-sock-42") { args, _ in
+            XCTAssertFalse(args.contains("activate-pane"))
+            return #"[{"window_id":1,"pane_id":3,"is_active":true},{"window_id":2,"pane_id":17,"is_active":true}]"#
+        })
     }
 
     func testLegacyAndWrongInstanceNeverIssueCommands() {
@@ -36,7 +43,7 @@ final class TerminalFocusTests: XCTestCase {
     }
 
     func testMissingPaneUnsupportedCLIAndUnconfirmedSelectionFail() {
-        for json in ["[]", "unsupported", "[{\"pane_id\":17,\"is_active\":false}]"] {
+        for json in ["[]", "unsupported", "[{\"window_id\":1,\"pane_id\":17,\"is_active\":false}]"] {
             var activated = 0
             XCTAssertThrowsError(try TerminalFocus.focusWezTerm(reference(), sockets: "n/tmp/gui-sock-42") { args, _ in
                 if args.contains("activate-pane") { activated += 1; return "" }

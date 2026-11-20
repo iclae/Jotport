@@ -30,7 +30,9 @@ enum TerminalFocus {
                     completion(.failure(LaunchFailure(message: "聚焦期间原终端已退出。")))
                     return
                 }
-                // activate-pane selects the exact pane/tab/window; do not replace it with app activation.
+                // The CLI selects pane/tab, but does not raise an OS window. We only
+                // foreground a verified single-window instance; multi-window is explicit failure.
+                if case .success = result { process.activate() }
                 completion(result)
             }
         }
@@ -49,10 +51,14 @@ enum TerminalFocus {
         environment.removeValue(forKey: "WEZTERM_PANE")
         environment["WEZTERM_UNIX_SOCKET"] = socket
         let prefix = ["cli", "--no-auto-start"]
-        struct Pane: Decodable { let pane_id: UInt64; let is_active: Bool }
+        struct Pane: Decodable { let pane_id: UInt64; let window_id: UInt64; let is_active: Bool }
         func target() throws -> Pane {
             let json = try command(prefix + ["list", "--format", "json"], environment)
-            guard let found = try JSONDecoder().decode([Pane].self, from: Data(json.utf8)).first(where: { String($0.pane_id) == pane }) else {
+            let panes = try JSONDecoder().decode([Pane].self, from: Data(json.utf8))
+            guard Set(panes.map(\.window_id)).count == 1 else {
+                throw LaunchFailure(message: "此 WezTerm 实例包含多个窗口或没有可用窗口。CLI 不能可靠前置指定系统窗口，请手动选择原窗口；未切换到其他会话。")
+            }
+            guard let found = panes.first(where: { String($0.pane_id) == pane }) else {
                 throw LaunchFailure(message: "绑定窗格已关闭或不可达；不会选择其他窗格。")
             }
             return found
