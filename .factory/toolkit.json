@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "tool": "dream-factory",
   "version": "0.1.0",
-  "packageDigest": "575683e4e87cd174ff7df2c26759a3464b6d047e9139173cf70e47ba09196346",
+  "packageDigest": "659feb33834430562eb503b16a18d58d1544df68b2374448ee45e344b67a241c",
   "managed": [
     {
       "path": ".agents/skills/project-workflow/SKILL.md",
@@ -22,7 +22,7 @@
     },
     {
       "path": ".agents/skills/project-workflow/references/records.md",
-      "digest": "7e05c531c26051064ddb3a539aa3c51549fe6a1789f7bf721fa2b7a36d28d568"
+      "digest": "87def2863658d342a0a6b8958625184decef852de7e72de7f4320cee78514781"
     },
     {
       "path": ".agents/skills/project-workflow/runtime/workspace/files.js",
