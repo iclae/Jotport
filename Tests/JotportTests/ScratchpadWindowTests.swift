@@ -43,7 +43,9 @@ final class ScratchpadWindowTests: XCTestCase {
             row.mouseMoved(with: hover)
 
             XCTAssertFalse(handle.isHidden)
-            XCTAssertEqual(handle.visibleRect, handle.bounds)
+            // On newer AppKit, unclipped views may report a visibleRect larger
+            // than their bounds. Assert complete coverage, not rectangle equality.
+            XCTAssertEqual(handle.visibleRect.intersection(handle.bounds), handle.bounds)
             for x in [handle.bounds.minX + 1, handle.bounds.maxX - 1] {
                 let gripPoint = NSPoint(x: x, y: handle.bounds.midY)
                 let windowPoint = handle.convert(gripPoint, to: content.superview)
